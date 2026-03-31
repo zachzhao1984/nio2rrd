@@ -1,0 +1,245 @@
+syntax = "proto2";
+package nio.ad.messages;
+
+import "common/localization/geometry.proto";
+
+message MapVersions {
+  // map data version
+  optional int32 version = 1;
+
+  // base map or service map
+  optional string map_type = 2;
+
+  optional string reserve = 3;
+  optional int32 model_version = 4;
+
+  // 0 : default
+  // 1 : nds
+  // 2 : crowd sourcing
+  optional int32 map_model = 5;
+
+  // 1: base map
+  // 2: service map
+  optional int32 map_data_src_type = 6;
+}
+
+message MapTopoLoc {
+// Refs: https://nio.feishu.cn/wiki/wikcn58e2P0tO3sedpnSGRG9myO
+// version: bl2.*.*
+  message MapTopoLocData {
+    enum MapElementType {
+      kUnKnown = 0;
+      kLane = 1;
+      kLaneBoundary = 2;
+      kTrafficLight = 3;
+      kCrosswalk = 4;
+      kJunction = 5;
+      kLaneGroup = 6;
+      kPole = 7;
+      kTrafficSign = 8;
+      kStopLine = 9;
+      kLink = 10;
+      kRoadGeoLine = 11;
+      kParkingArea = 12;
+      kElementCount = 13;
+    }
+
+    // 0: this map ele loc match failed
+    // 1: this map ele loc match success
+    optional int32 loc_status = 1;
+    
+    optional uint64 link_id = 2;
+    optional uint64 lane_id = 3;
+    
+    // representing the number of current lane, the far right lane is 0
+    optional uint64 sequence_id = 4;
+    optional float lat_central_offset = 5; // [meter]
+    
+    // diff to map element heading, [-180.0, 180.0) degree, right hand, z up
+    optional float heading_diff = 6;
+    
+    // offset from link start point, meter
+    optional float link_start_offset = 7;
+    
+    // normalization possibility, quantification the possibility
+    //    all optional data possibility sum = 1.0
+    //    value: (0.0, 1.0]
+    optional float probability = 8;
+
+    optional string reserve = 9;
+
+    // if this is lane, the lane_type is useful
+    optional int32 lane_type = 10;
+
+    // UNKNOW_CONNECTION_TYPE = 0,
+    // SPLIT = 1,
+    // MERGE = 2,
+    // SPLIT_AND_MERGE = 3,
+    // in connection dirrection, which have more lane numbers, have the connection_type
+    optional int32 connection_type = 11;
+
+    optional MapElementType map_element_type = 12;
+
+    // the parkingspace id is nio unique_id
+    // format is:                     ${MAP_ID}-${id}
+    //       eg.: PK-Downtown-df4207eb-45b668a3-520188744
+    //    MAP_ID: PK-Downtown-df4207eb-45b668a3
+    //        id:                               520188744
+    optional string parking_area_parkingspace_unique_id = 13;
+
+    //  2 (in proto data) : (in real world) 2 floor up ground
+    //  1 (in proto data) : (in real world) 1 floor up ground
+    //  0 (in proto data) : (in real world)   ground floor
+    // -1 (in proto data) : (in real world) 1 floor under ground
+    // -2 (in proto data) : (in real world) 2 floor under ground
+    // no floor num !!!   : (in real world) 3 floor under ground (when this floor have no map data)
+    // -3 (in proto data) : (in real world) 4 floor under ground
+    optional int32 parking_area_floor_relation_num = 14;
+
+    // current vehicle is within the map_id area
+    optional string within_map_id = 15;  // UID of parking-lot (Downtown) or service station (in Highway), example  PK-Downtown-0bd281f1-e4e50d69
+
+    optional int32 form_way = 16;
+
+    optional int32 priority_road_class = 17;
+
+    repeated int32 form_ways = 18;
+
+    // offset from lane start point, meter
+    optional float lane_start_offset = 19;
+
+    // Using ints to identify types instead of enum values is not conducive to extension
+    optional int32 map_element_type_compatibility = 20;
+
+    optional int32 link_matched_cenctral_pts_index = 21;
+
+    optional int32 lane_matched_cenctral_pts_index = 22;
+
+    // parking area parking space map_element id
+    optional uint64 nearest_paps_id = 23;
+    
+    // type see doc
+    optional int32 link_child_lane_match_type = 24;
+
+    optional LocVector3 link_adsorption_point = 25;
+
+    optional LocVector3 lane_adsorption_point = 26;
+
+    optional int32 confidence = 27;
+  }
+
+  message TopoStateSimplifyMsg {
+    optional uint64 link_id = 1;
+    optional uint64 polygon_ok_lane_id = 2;
+    optional uint64 nearest_lane_id = 3;
+  }
+
+  message TopoLocStateData {
+    optional uint64 link_id = 1;
+  }
+
+  message TopoMapDomainData {
+    optional TopoStateSimplifyMsg road_net_best_state = 1 [deprecated=true];
+    optional TopoStateSimplifyMsg routing_best_state = 2 [deprecated=true];
+    optional TopoStateSimplifyMsg final_best_state = 3 [deprecated=true];
+    optional TopoLocStateData final_state = 4;    // best_state
+    optional TopoLocStateData road_state = 5;     // best_state
+    optional TopoLocStateData routing_state = 6;  // best_state
+  }
+
+  // topo loc meta status
+  // 0: map topo loc failed, out map
+  // 1: map topo loc success, in map
+  optional int32 loc_status = 1;
+  
+  // 0: default,not useful
+  // 1: point_level, boundary shape point confidence
+  // 2: lane_level, boundary shape point not confidence,lane confidence
+  // 3: link(road)_level
+  optional int32 loc_level = 2;
+  
+  // possibility order is data index order
+  //    eg: the topo_data[0] is max possibility topo data
+  repeated MapTopoLocData loc_data = 3;
+  
+  // if only have hdmap , Version of HDmap, eg. 22102202
+  optional int32 hdmap_version = 4;
+  
+  // if there have multy map versions
+  repeated MapVersions map_versions = 5;
+
+  optional string reserve = 6;
+
+  // the parkingspace id is nio unique_id
+  // format is:                     ${MAP_ID}-${id}
+  //       eg.: PK-Downtown-df4207eb-45b668a3-520188744
+  //    MAP_ID: PK-Downtown-df4207eb-45b668a3
+  //        id:                               520188744
+  optional string parking_area_parkingspace_unique_id = 7;
+
+  //  2 (in proto data) : (in real world) 2 floor up ground
+  //  1 (in proto data) : (in real world) 1 floor up ground
+  //  0 (in proto data) : (in real world)   ground floor
+  // -1 (in proto data) : (in real world) 1 floor under ground
+  // -2 (in proto data) : (in real world) 2 floor under ground
+  // no floor num !!!   : (in real world) 3 floor under ground (when this floor have no map data)
+  // -3 (in proto data) : (in real world) 4 floor under ground
+  optional int32 parking_area_floor_relation_num = 8;
+
+  // current vehicle is within the map_id area
+  optional string within_map_id = 9;
+
+  optional int32 form_way = 10;
+
+  optional int32 priority_road_class = 11;
+
+  // not ok -> ok fail
+  //   every frame reason will not same, as long as not ok, the reason will change
+  //   a lot reasons will cause not ok, and reasons is serial, record the last one
+  optional uint32 status_in_fail_reason = 12;
+
+  // ok -> not ok
+  //     as long as status not ok, this reason will not change
+  optional uint32 status_out_reason = 13;
+
+  repeated MapTopoLocData sd_loc_data = 14;
+
+  optional MapTopoLocData best_loc_data = 15;
+
+  optional MapTopoLocData best_sd_loc_data = 16;
+
+  // hd------------
+    // not ok -> ok, fail
+  optional uint32 hd_enter_fail_reason = 17; // The most important and noteworthy reason
+  repeated uint32 hd_enter_fail_reasons = 18;
+    // not ok -> ok, succeed
+  optional uint32 hd_enter_succeed_reason = 19; // The most important and noteworthy reason
+  repeated uint32 hd_enter_succeed_reasons = 20;
+    // ok -> not ok
+  optional uint32 hd_exist_reason = 21; // The most important and noteworthy reason
+  repeated uint32 hd_exist_reasons = 22;
+  // hd------------
+
+  // sd------------
+    // not ok -> ok, fail
+  optional uint32 sd_enter_fail_reason = 23; // The most important and noteworthy reason
+  repeated uint32 sd_enter_fail_reasons = 24;
+    // not ok -> ok, succeed
+  optional uint32 sd_enter_succeed_reason = 25; // The most important and noteworthy reason
+  repeated uint32 sd_enter_succeed_reasons = 26;
+    // ok -> not ok
+  optional uint32 sd_exist_reason = 27; // The most important and noteworthy reason
+  repeated uint32 sd_exist_reasons = 28;
+  // sd------------
+
+  optional TopoMapDomainData hd_topo_loc = 29 [deprecated=true];
+  optional TopoMapDomainData sd_topo_loc = 30 [deprecated=true];
+  optional int32 sd_routing_yaw = 31 [deprecated=true];
+  optional int32 hd_routing_valid = 32 [deprecated=true];
+
+  optional TopoMapDomainData nad_domain_topo_loc = 33;
+  optional TopoMapDomainData sd_domain_topo_loc = 34;
+
+  // hp: high precision
+  optional string within_map_id_pn_hp = 35;
+}

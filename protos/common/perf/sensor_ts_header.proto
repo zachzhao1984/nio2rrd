@@ -1,0 +1,29 @@
+syntax = "proto2";
+
+package nio.ad.messages;
+
+
+message SensorTSHeader{
+    repeated uint64 sensor_camera_fw_ts = 1;    // fw camera
+    repeated uint64 sensor_camera_fn_ts = 2;    // fn camera
+    repeated uint64 sensor_camera_rn_ts = 3;    // rear camera
+    repeated uint64 sensor_camera_fl_ts = 4;    // front left side camera
+    repeated uint64 sensor_camera_fr_ts = 5;    // front right side camera
+    repeated uint64 sensor_camera_rr_ts = 6;    // rear right side camera
+    repeated uint64 sensor_camera_rl_ts = 7;    // rear left side camera
+    repeated uint64 sensor_camera_sfw_ts = 8;    // front svc
+    repeated uint64 sensor_camera_srcw_ts = 9;   // rear svc  
+    repeated uint64 sensor_camera_slw_ts = 10;   // left svc
+    repeated uint64 sensor_camera_srw_ts = 11;   // right svc
+    repeated uint64 sensor_lidar_ts = 12;        // lidar 
+    repeated uint64 sensor_radar_front_ts = 13;  // front radar
+    repeated uint64 sensor_radar_fl_ts = 14;     // front left radar
+    repeated uint64 sensor_radar_fr_ts = 15;     // front right radar  
+    repeated uint64 sensor_radar_rl_ts = 16;     // rear left radar
+    repeated uint64 sensor_radar_rr_ts = 17;     // rear right radar
+    repeated uint64 imu_ts = 18;                 // imu
+    repeated uint64 gnss_ts = 19;                // gnss
+    repeated uint64 vehicle_in_10ms_ts = 20;     // can 100Hz
+    repeated uint64 vehicle_in_50ms_ts = 21;     // can 20Hz
+}
+

@@ -1,0 +1,119 @@
+
+syntax = "proto2";
+
+package nio.ad.messages;
+
+import "common/pnc/geometry.proto";
+import "common/perf/sensor_ts_header.proto";
+import "common/localization/map_topo_localization.proto";
+import "common/localization/global_localization.proto";
+
+message LaneLocRoadMap {
+  optional uint32 lane_loc_from_left = 1;
+  optional uint32 lane_loc_from_right = 2;
+  optional uint32 total_lane_num = 3;
+}
+
+message Pose {
+  // Vehicle reference point (VRP) is at center of rear axle.
+
+  // When this message was published. In nanoseconds.
+  optional uint64 time_pub = 1;
+  
+  // When the measurements were made. In nanoseconds.
+  optional uint64 time_meas = 2;
+  
+  // GPS time of the measurements. In nanoseconds.
+  optional uint64 time_gps = 3;
+  
+  // East/north/up with respect to the map origin.
+  // Horizontal offsets x and y are 0 if VRP is right at the map origin.
+  // Height z is with respect to WGS-84 ellipsoid.
+  optional Vector3d position = 4;  // in meters
+  
+  // Euler angles (intrinsic sequence z-y-x).
+  // Yaw is 0 when the car points to east, and is pi/2 when the car points to north.
+  optional Vector3d roll_pitch_yaw = 5;  // in rad
+  
+  optional Vector3d velocity_enu = 6;  // in m/s
+  
+  optional Vector3d velocity_flu = 7;  // in m/s
+  
+  optional Vector3d angular_velocity_flu = 8;  // in rad/s
+  
+  optional Vector3d acceleration_flu = 9;  // in m/s^2
+  
+  // Standard deviation estimates.
+  optional Vector3d position_std = 10;  // in meters
+  
+  optional Vector3d roll_pitch_yaw_std = 11;  // in rad
+  
+  optional Vector3d velocity_enu_std = 12;  // in m/s
+  
+  enum PoseType {
+    // Invalid solution. Do NOT use.
+    TYPE_INVALID = 0;
+    // High-variance solution, in which the covariance matrix may be incorrect. Use with caution.
+    TYPE_CONVERGING = 1;
+    // Fully converged solution. Safe to use.
+    TYPE_GOOD = 2;
+  };  
+
+  optional PoseType type = 16;
+  
+  optional Vector3d wgs84_deg = 17; // Longitude [degree], latitude [degree], and altitude [m].
+
+  optional uint64 curr_hd_lane_id = 18; // originally from global localization, may be rectified by WM
+
+  optional double confidence = 19;
+
+  repeated float odd_confidence = 20;
+
+  enum PoseSource {
+    FROM_GLOBAL_LOCALIZATION = 0;
+    FROM_WM_FUSION = 1;
+  }
+
+  optional PoseSource pose_source = 21;
+  optional int32 is_in_psp_area = 22;
+  optional uint32 global_loc_reject_reason = 23;
+
+  enum WMConfidence {
+    INVALID = 0;
+    PERCEPTION_ONLY = 1;
+    HDMAP_ONLY = 2;
+    FUSION_MODE = 3;
+  }
+  optional WMConfidence wm_confidence = 24;
+  optional float curr_hd_lane_offset = 25; // traveled distance in current hd lane, from global localization
+  optional uint64 global_loc_hd_lane_id = 26; // strictly from global localization， for comparison with 18
+  optional MapTopoLoc map_topo_loc = 27;
+  optional LaneLocRoadMap lane_loc = 28;  // lane loc from WM
+  optional uint32 error_code = 29; // complementary info for any abnormal output
+  optional uint32 wmconf_reason = 30; // complementary info for wm_confidence
+  optional uint64 global_loc_hd_link_id = 31; // from global localization, map_topo_loc
+  optional LaneLoc.LaneLocStatus lane_loc_status = 32;
+  optional uint32 navigation_yawing = 33; // navigation deviated
+
+  message EnvScenario {
+    optional uint32 scenario_type = 1;
+    optional bool is_risk = 2;
+  }
+  repeated EnvScenario env_scenario = 34;
+  optional float cross_distance = 35; // distance to next cross junction
+  optional uint64 cross_link_id = 36; // front cross junction link id
+  optional int32 is_in_pn_area = 37; // for separating from is_in_psp_area = 22
+  optional float global_loc_link_start_offset = 38; //  strictly from global localization
+  optional bool lane_risk_scenario = 39; // perception rain risk
+  optional int32 is_curr_route_map_correct = 40; // car on hdmap
+
+  optional string station_id = 50; // from global localization
+  optional string extra_info = 100; // used to describe any complimentary information
+
+  optional SensorTSHeader sensor_original_ts = 1001;   // sensor original ts
+  optional uint64 timestamp = 536870905;     // ptp time, nanosec, for cosine bundle timestamp   
+  optional uint64 publish_ptp_ts = 536870907;   // publish ptp timestamp, uint in nanosec
+  optional string publisher_id = 536870909;     // uuid of the publisher
+  optional uint64 counter = 536870910;         // message counter
+  optional uint64 publish_ts = 536870911;      // publish utc timestamp; unit : nanosecond
+}

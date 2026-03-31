@@ -1,0 +1,57 @@
+syntax = "proto2";
+
+package nio.ad.messages;
+
+message LidarTrajectoryPrediction {
+    message Trajectory {
+        message Waypoint {
+            // The timestamp of the predicted waypoint (unit: ns).
+            optional uint64 timestamp = 1;
+            // Absolute x in vhicle coordinate (unit: m, forward is positive).
+            optional float x = 2;
+            // Absolute y in vehicle coordinate (unit: m, left is positive).
+            optional float y = 3;
+            // Absolute rotation angle around the z-axis in vehicle coordinate
+            // (unit: rad, counterclockwise is positive).
+            optional float yaw = 4;
+            // covariance x in vehicle coordinate (unit: m, left is positive).
+            optional float cov_x = 5;
+            // covariance y in vehicle coordinate (unit: m, left is positive).
+            optional float cov_y = 6;
+            // covariance xy in vehicle coordinate (unit: m, left is positive).
+            optional float cov_xy = 7;
+            repeated float reserve = 100;
+        }
+
+        // Num of predicted waypoints in the trajectory.
+        optional int32 num_waypoints = 1;
+        // The predicted waypoints of the trajectory (including the lidar OD 
+        // output in the current lidar frame as the first waypoint).
+        repeated Waypoint waypoints = 2;
+        // The predicted probability of the trajectory.
+        optional float probability = 3;
+        repeated float reserve = 100;
+    }
+
+    // Num of predicted trajectories of the lidar object.
+    optional int32 num_trajectories   = 1;
+    // The predicted trajectories of the lidar object.
+    repeated Trajectory trajectories  = 2;
+    optional int32  best_prob_index   = 3;//After BL220
+    repeated float reserve = 100;
+}
+message EgoCarTrajectory {
+    optional LidarTrajectoryPrediction short_term_trajectory_prediction = 1;  // Lidar long-term trajectory prediction output (~8s).
+    optional LidarTrajectoryPrediction long_term_trajectory_prediction = 2;  // Lidar long-term trajectory prediction output (~8s).
+    optional uint64 publish_ptp_ts = 3;   // publish ptp timestamp, uint in nanosec
+    optional uint64 measuring_ts = 4;
+    optional int32 intention = 5;
+    optional int32 drive_model = 6;
+    optional int32 veh_length = 7;
+    optional int32 veh_width = 8;
+    optional int32 veh_height = 9;
+    optional int32 veh_rwheel2head = 10; // rear axle to head most point distance [m]
+    optional int32 veh_rwheel2tail = 11; // rear axle to rear most point distance [m]
+    optional float veh_wheel_base = 12; // front axle to rear axle distance [m]
+    repeated float reserve = 1000;
+}

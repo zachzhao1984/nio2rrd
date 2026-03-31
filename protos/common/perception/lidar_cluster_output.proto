@@ -1,0 +1,150 @@
+syntax = "proto2";
+
+package nio.ad.messages;
+import "common/perf/sensor_ts_header.proto";
+
+message LidarPoint2D {
+    optional float lidar_point_2d_x = 1;  // In vehicle coordinate system, x axis points to the forward direction of the vehicle, unit:m
+    optional float lidar_point_2d_y = 2;  // In vehicle coordinate system, y axis points to the left direction of the vehicle, unit:m
+    optional bool is_visible = 3;         // whether a point is visible or not
+}
+
+enum LidarSemanticClass{
+    LSC_VEHICLE                   = 0;  // Including small_vehicle, large_vehicle, three_wheel_vehicle, trailer, emergency_vehicle and other vehicles
+    LSC_PEDESTRIAN                = 1;  // Including adult, child and other pedestrian
+    LSC_PEDESTRIAN_OBJECT         = 2;  // Including stroller, wheelchair and other pedestrain object 
+    LSC_CYCLIST                   = 3;  // Including motorcyclist, ebicyclist, bicyclist and other two wheel vhicle and its riders
+    LSC_CYCLE                     = 4;  // Including bicycle, ebicycle, motorcycle and other two wheel vhicle without riders
+    LSC_ANIMAL                    = 5;  // Including dog, cat and other animal
+    LSC_CONE                      = 6;  // Including all kinds of cone bucket
+    LSC_CONSTRUCTION_POLE         = 7;  // Including warning post in construction or warning area, and poles that lower than 1.5m
+    LSC_BARRIER                   = 8;  // Including temporal barrier and drum objects
+    LSC_VEGETATION                = 9;  // Including vegetation without tree trunk
+    LSC_CURB                     = 10;  // Including all kinds of curb
+    LSC_POLE_TREETRUNK           = 11;  // Including pole, tree trunk and other cylindrical objects, and poles that higher than 1.5m
+    LSC_SIGN                     = 12;  // Including all kinds of sign, such as traffic sign, construction sign
+    LSC_GROUND                   = 13;  // Including all kinds of road surface and road marker
+    LSC_WALEABLE_GROUND          = 14;  // Including all kinds of walkable surface, such as sidewalk and lawn 
+    LSC_BUMP                     = 15;  // Including bump, cateye
+    LSC_HOLLOW                   = 16;  // Including all kinds of holes
+    LSC_FILTERABLE               = 17;  // Including all filterable objects, such as spray, rooster tail, dust, rain, snow and other noise or filterable ojbect 
+    LSC_OTHER_IMPERMANENTOBJECT  = 18;  // Including other impermanent object that class is not included above, such as debris, tire, dropped object
+    LSC_OTHER_PERMANENTOBJECT    = 19;  // Including other permanent object that class is not included above, such as building, traffic light, fire hydrant and parterre
+    LSC_OBW                      = 20;  // Including instance of water horse when there are one or two water horse
+    LSC_ANTI_COLLISION_BUCKET    = 21;  // Including instance of anti-collision_bucket when there are one or two anti-collision_bucket
+    LSC_HIGH_HANG_SIGN           = 22;  // Including signs that are high and suspended and will not affect the driving of the car
+    LSC_LIFTING_ROD              = 23;  // Including lift rod that in horizontal state, and the rod is suspended
+    LSC_LIFTING_FENCE_ROD        = 24;  // Including the lifting rod that is grid shaped, and the grid is basically in a grounded state
+    LSC_ROOF                     = 25;  // Including roof, the bottom of the viaduct
+    LSC_GATE_MACHINE             = 26; // Including parking and toll station scene 
+}
+
+enum LidarClusterRefinedType {
+    LCRT_OTHER                   = 0;   // Including other object that class is not included below, such as vehicle, vru and etc.
+    LCRT_ANIMAL                  = 1;   // Including dog, cat and other animal.
+    LCRT_HOLLOW                  = 2;   // Including all kinds of holes.
+    LCRT_FILTERABLE              = 3;   // Including all filterable objects, such as spray, rooster tail, dust, rain, snow and other noise or filterable ojbect.
+    LCRT_LIFTING_ROD             = 4;   // Including lift rod that in horizontal state, and the rod is suspended.
+    LCRT_LIFTING_FENCE_ROD       = 5;   // Including the lifting rod that is grid shaped, and the grid is basically in a grounded state.
+    LCRT_PLASTIC_BAG             = 6;   // Including all kinds of plastic bag.
+    LCRT_FAKE_VEHICLE            = 7;   // Including fake vehicle.
+    LCRT_FAKE_PEDESTRIAN         = 8;   // Including fake pedestrian.
+    LCRT_FAKE_CYCLIST            = 9;   // Including fake cyclist.
+    LCRT_ROAD_STUD               = 10;  // Including road stud.
+    LCRT_CARTON                  = 11;  // Including all kinds of carton on road, which should be reserved for future use.
+    LCRT_CARDBOARD               = 12;  // Including all kinds of cardboard, such as floating cardboard, which should be filtered as fp.
+}
+
+enum LidarClusterExistenceAttribute {
+    LCEA_UNKNOWN                 = 0;   // Unknown passableness.
+    LCEA_PASSABLE                = 1;   // Including passable object, such as filterable object, plastic bag and etc.
+    LCEA_IMPASSABLE              = 2;   // Including impassable object, such as vehicle, vru and etc.
+}
+
+message LidarClusterObject {
+    optional LidarSemanticClass lidar_cluster_class = 1;  // Used for od_post
+    optional float lidar_cluster_probability = 2;  // Used for od_post
+    optional LCOVelocity lidar_cluster_velocity = 3;  // Used for od_post
+    optional LCOMotionStatus lidar_cluster_motion_state = 4;  // Used for od_post
+    // Some cluster points features
+    optional uint32 lidar_cluster_points_num = 5;
+    optional float lidar_cluster_points_height_max = 6;  // W.R.T local ground. 
+                                                         // Local ground refers to the corresponding ground height of the grid, not the cluster average ground height
+    optional float lidar_cluster_points_height_min = 7;  // W.R.T local ground
+                                                         // Local ground refers to the corresponding ground height of the grid, not the cluster average ground height
+    optional float lidar_cluster_points_height_ground = 8;  // Average ground height of cluster
+    repeated LidarPoint2D lidar_cluster_polygon = 9;  // Cluster 2D polygon list.
+    repeated float lidar_cluster_polygon_min_height = 33;  // Cluster polygon height min list.
+    repeated float lidar_cluster_polygon_max_height = 34;  // Cluster polygon height max list.
+
+    repeated LidarPoint2D lidar_cluster_voxel = 10 [deprecated=true]; // Cluster inner 2D voxel list.
+    repeated int32 lidar_cluster_voxel_obj_mask = 11 [deprecated=true]; // Cluster inner 2D voxel OD object mask, -1 means current voxel does not belong to any OD objects.
+    optional float lidar_cluster_center_x = 12;
+    optional float lidar_cluster_center_y = 13;
+    optional float lidar_cluster_center_z = 14;
+    optional float lidar_cluster_width = 15;
+    optional float lidar_cluster_height = 16;
+    optional float lidar_cluster_length = 17;
+    optional bool is_background = 18; // Cluster is background or foreground
+    optional bool is_hanging = 19 [deprecated=true]; // Cluster is hanging or not
+    optional bool is_continuous = 20 [deprecated=true]; // Cluster is continuous or isolated
+    repeated float lidar_cluster_semantic_score = 21; // Average scores for every semantic class type. Total 20 class types and detailed order see LidarSemanticClass.
+    optional uint64 lidar_cluster_mean_timestamp = 22;  // The mean timestamp of the lidar points within the lidar GOD polygon (unit: ns).
+    optional float lidar_cluster_mbr_yaw = 23 [deprecated=true];     // If god cluster is moving, the yaw is the same as motion orientation.
+                                                   // If god cluster is static, the yaw is the orientation of minimum bounding rectangle, which is calc by rotating caliper algorithm.
+    optional float lidar_cluster_second_return_ration = 24;    // Mean second return ration of all GOD cluster voxels
+    optional float lidar_cluster_high_reflection_ration = 25;  // Mean high reflection ration of all GOD cluster voxels
+    optional float lidar_cluster_filterable_ratio = 26; // Filterable points ratio of all grids within the GOD cluster
+    optional float lidar_cluster_occupied_ratio = 27; // Occupied voxel ratio of all grids within the GOD cluster
+    optional float lidar_cluster_motion_uncertainty = 28; // Mean motion uncertainty of all grids within the GOD cluster
+    optional bool is_non_critical_object = 29; // Whether current object is a critical object
+    optional uint32 lidar_cluster_check_code = 30; // Filtered object check code, refer to https://nio.feishu.cn/wiki/GU4KwR8Hgi6ma1kslaKcUM1lnd2
+    optional uint32 highway_fp_tag = 31; // FP tag for high way, refer to https://nio.feishu.cn/wiki/GU4KwR8Hgi6ma1kslaKcUM1lnd2
+    optional bool need_cross_check = 32; // whether current object need fusion cross check, default false
+    optional uint32 goa_fp_tag = 35; // FP tag for GOA(General Objects Warning and Assist), refer to https://nio.feishu.cn/wiki/GU4KwR8Hgi6ma1kslaKcUM1lnd2
+    repeated float god_confidence_feature = 36; // GOD confidence feature, refer to https://nio.feishu.cn/wiki/EZ58wKE2hiiciVk4HuEc2e0EnAe
+    optional float lidar_cluster_hhs_ration = 37;  // Mean high hang sign ration of all GOD cluster voxels
+    optional uint32 urban_fp_tag = 38; // FP tag for urban, refer to https://nio.feishu.cn/wiki/GU4KwR8Hgi6ma1kslaKcUM1lnd2
+    repeated float lidar_cluster_intensity_feature = 39; // GOD intensity feature for expansion and ghost FP filter, refer to https://nio.feishu.cn/wiki/G1r8wrh9NiJzhwkzXBacHSDpn8w
+                                                         // [0]: hhs high reflection ratio, [1]: crosstalk ratio, [2]: blooming ratio
+    optional LidarClusterRefinedType lidar_cluster_refined_type = 40; // Refined type of the cluster
+    optional LidarClusterExistenceAttribute lidar_cluster_existence_attribute = 41; // Existence attribute of the cluster
+    optional uint32 p2p_fp_tag = 42;  //fp tag for p2p
+
+    enum LCOMotionStatus{  // The same as defined in perception_objects.proto DynamicObj message. Waiting for uniform variable abstraction and merge
+        LCO_MOTION_STATUS_UNKNOWN = 0;
+        LCO_MOTION_STATUS_STATIC = 1;
+        LCO_MOTION_STATUS_STOPPED = 2;
+        LCO_MOTION_STATUS_MOVING_SLOWLY = 3;
+        LCO_MOTION_STATUS_MOVING = 4;
+    }
+
+    message LCOVelocity {  // The same as defined in perception_objects.proto Velocity message. Waiting for uniform variable abstraction and merge
+        optional float lco_long_velocity = 1;//ISO coordinate system, x axis points to the forward direction of the vehicle, unit: m/s
+        optional float lco_long_velocity_std = 2;// standard longitudinal velocity, unit: m/s
+        optional float lco_lat_velocity = 3;//ISO coordinate system, y axis points to the left direction of the vehicle, unit: m/s
+        optional float lco_lat_velocity_std = 4;//standard lateral velocity, unit: m/s
+        optional float lco_up_velocity = 5;//ISO coordinate system, z axis points to the up direction of the vehicle, unit: m/s
+        optional float lco_up_velocity_std = 6;//standard up velocity, , unit: m/s
+    }
+
+}
+
+enum LidarObjectDetectionSource{  // The source where lidar object create from
+    OBJ_ONLYFROM_OD = 0;          // 0: lidar object info only from OD
+    OBJ_ONLYFROM_GOD = 1;         // 1: lidar object info only from GOD
+    OBJ_BOTHFROM_OD_GOD = 2;      // 2: lidar object info both from OD and GOD
+}
+
+message LidarClusterObjects {
+    optional uint64 timestamp = 1;                // Timestamp_Receive_Image
+    repeated LidarClusterObject lidar_cluster_object_list = 2;
+
+    optional SensorTSHeader sensor_original_ts = 536870906;   // sensor original ts
+    optional uint64 publish_ptp_ts = 536870907;   // publish ptp timestamp, uint in nanosec
+    optional string publisher_id = 536870909;     // uuid of the publisher
+    optional uint64 counter = 536870910;          // message counter
+    optional uint64 publish_ts = 536870911;       // publish utc timestamp; unit : nanosecond
+
+}
+

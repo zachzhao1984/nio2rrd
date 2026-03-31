@@ -1,0 +1,30 @@
+syntax = "proto2";
+
+package nio.ad.messages;
+
+import "common/pnc/geometry.proto";
+
+message Imu {
+  // Vehicle reference point (VRP) is at center of rear axle.
+
+  // When this message was published. In nanoseconds.
+  optional uint64 time_pub = 1;
+
+  // When the measurements were made. In nanoseconds.
+  optional uint64 time_meas = 2;
+
+  // GPS time of the measurements. In nanoseconds.
+  optional uint64 time_gps = 3;
+
+  // When duration is non-zero, the gyroscope and accelerometer measurements are
+  // averaged for the period from (time_meas - duration) to time_meas. Usually,
+  // duration = 1 / sampling_frequency. When duration is 0, the measurements are
+  // instantaneous at time_meas.
+  optional uint64 duration = 4;  // in nanoseconds
+
+  optional Vector3d angular_velocity_flu = 5;  // in rad/s
+
+  optional Vector3d acceleration_flu = 6;  // in m/s^2
+
+  optional bool healthy = 7;
+}

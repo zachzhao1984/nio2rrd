@@ -1,0 +1,698 @@
+syntax = "proto2";
+
+package nio.ad.messages;
+import "common/perf/sensor_ts_header.proto";
+
+import "common/pnc/geometry.proto"; // for Vector3d
+import "common/perception/lidar_cluster_output.proto";
+import "common/perception/lidar_prediction_output.proto";
+
+message Velocity {
+    optional float Long_Velocity = 1;//ISO coordinate system, x axis points to the forward direction of the vehicle, unit: m/s
+    optional float Long_Velocity_STD = 2;// standard longitudinal velocity, unit: m/s
+    optional float Lat_Velocity = 3;//ISO coordinate system, y axis points to the left direction of the vehicle, unit: m/s
+    optional float Lat_Velocity_STD = 4;//standard lateral velocity, unit: m/s
+    optional float Up_Velocity = 5;//ISO coordinate system, z axis points to the up direction of the vehicle, unit: m/s
+    optional float Up_Velocity_STD = 6;//standard up velocity, , unit: m/s
+    optional float Long_Velocity_UNC = 7; // uncertainty and inconsistency measure for longitudinal velocity, unit: m/s
+    optional float Lat_Velocity_UNC = 8; // uncertainty and inconsistency measure for lateral velocity, unit: m/s
+    optional float Up_Velocity_UNC = 9; // uncertainty and inconsistency measure for upwards velocity, unit: m/s
+}
+
+message Acceleration {
+    optional float Long_Acc = 1;//ISO coordinate system, x axis points to the forward direction of the vehicle, unit: m/s^2
+    optional float Long_Acc_STD = 2;// standard longitudinal acceleration, unit: m/s^2
+    optional float Lat_Acc = 3;//ISO coordinate system, y axis points to the left direction of the vehicle, unit: m/s^2
+    optional float Lat_Acc_STD = 4;//standard lateral acceleration, unit: m/s^2
+    optional float Up_Acc = 5;//ISO coordinate system, z axis points to the up direction of the vehicle, unit: m/s^2
+    optional float Up_Acc_STD = 6;//standard up acceleration, , unit: m/s^2
+    optional float Long_Acc_UNC = 7; // uncertainty and inconsistency measure for longitudinal acceleration, unit: m/s^2
+    optional float Lat_Acc_UNC = 8; // uncertainty and inconsistency measure for lateral acceleration, unit: m/s^2
+    optional float Up_Acc_UNC = 9; // uncertainty and inconsistency measure for upwards acceleration, unit: m/s^2
+}
+
+message Position {
+    optional float Long_Position = 1;//ISO coordinate system, x axis points to the forward direction of the vehicle, unit: meters
+    optional float Long_Position_STD = 2;// standard longitudinal distance, unit: meters
+    optional float Lat_Position = 3;//ISO coordinate system, y axis points to the left direction of the vehicle, unit: meters
+    optional float Lat_Position_STD = 4;//standard lateral distance, unit: meters
+    optional float Vertical_Position = 5; //ISO cooridnate system, z axis point to the upwords direction of the vehicle, uint: meters
+    optional float Vertical_Position_STD = 6; //standard vertical distance, unit: meters
+    optional float Long_Position_UNC = 7; // uncertainty and inconsistency measure for longitudinal position, unit: m
+    optional float Lat_Position_UNC = 8; // uncertainty and inconsistency measure for lateral position, unit: m
+    optional float Up_Position_UNC = 9; // uncertainty and inconsistency measure for upwards position, unit: m
+}
+
+message Dimension {
+    optional float OBJ_Length = 1;//Distance between reference points RearLeft and FrontLeft (same as |RearRight-
+                                //FrontRight| and |RearMidwidth-FrontMidwidth|). It is the object dimension along X-axis in local
+                                //coordinate system. The position of the reference point is the origin of the bounding box
+    optional float OBJ_Length_STD = 2;
+    optional float OBJ_Width = 3;//Distance between reference points RearLeft and RearRight (same as |FrontLeft-
+                                //FrontRight| and |MidsideRight-MidsideLeft|). It is the object dimension along Y-axis. in local
+                                //coordinate system. The position of the reference point is the origin of the bounding box.
+    optional float OBJ_Width_STD = 4;
+    
+    optional float OBJ_Height = 5;//Height of the object. It is the object dimension along Z-axis. in local coordinate system.
+                                //The position of the reference point is the origin of the bounding box
+    optional float OBJ_Height_STD = 6;
+}
+
+message VehicleBody{
+    optional uint32 box_index = 1; //每个BOX的序号, 0：代表牵引车头, 1：第一节铰接拖车, 2：第二节铰接拖车, 3：第三节铰接拖车
+    optional Position box_position = 2; //自车后轴中心坐标系
+    optional Dimension box_dimension = 3; //自车后轴中心坐标系
+    optional Velocity box_velocity = 4; //自车后轴中心坐标系
+    optional Acceleration box_acceleration = 5; //自车后轴中心坐标系
+    optional float box_heading = 6; //unit: rad, 自车后轴中心坐标系
+}
+
+enum Source{
+    Source_Vision = 0;
+    Source_Lidar = 1;
+    Source_Fusion = 2;
+}
+
+enum ObjectPriority{
+    PRIORITY_LOW = 0;
+    PRIORITY_MID = 1;
+    PRIORITY_HIGH = 2;
+}
+
+message ObjInfo{
+    optional uint32	OBJ_Object_Count = 1;
+    optional uint32	OBJ_VRU_Count = 2;
+    optional uint32	OBJ_VD_Count = 3;
+    optional uint32	OBJ_CIPV_ID	= 4;
+    optional bool OBJ_CIPV_Lost	= 5;
+    optional bool OBJ_Is_CCI = 6;
+    optional OBJCCISide	OBJ_CCI_Side = 7;
+    optional uint32	OBJ_CCI_ID = 8;
+
+
+    enum OBJCCISide{
+        OBJCCISide_Unknown = 0;
+        OBJCCISide_Left = 1;
+        OBJCCISide_Right = 2;
+    }
+}
+
+enum MotionModel {
+    MotionModel_STATIC = 0;
+    MotionModel_VA = 1;
+    MotionModel_VTR = 2;
+    MotionModel_VATR = 3;
+    MotionModel_VT = 4;
+    MotionModel_VAT = 5;
+}
+
+enum MovingTag {
+    MovingTag_MOVING = 0;
+    MovingTag_SLOWLY_MOVING = 1;
+    MovingTag_STATIC = 2;
+    MovingTag_UNKNOWN = -1;
+}
+
+enum AccInfo {
+    AccInfo_CONSTANT_V = 0;
+    AccInfo_DECELERATING = 1;
+    AccInfo_ACCELERATING = 2;
+    AccInfo_BREAK = 3;
+    AccInfo_STARTING = 4;
+    AccInfo_UNKNOWN = -1;
+}
+
+enum AngularVelInfo {
+    AngularVelInfo_GO_STRAIGHT = 0;
+    AngularVelInfo_TURNING_LEFT_CONST_OMEGA = 1;
+    AngularVelInfo_TURNING_RIGHT_CONST_OMEGA = 2;
+    AngularVelInfo_TURNING_LEFT_NONCONST_OMEGA = 3;
+    AngularVelInfo_TURNING_RIGHT_NONCONST_OMEGA = 4;
+    AngularVelInfo_UNKNOWN = -1;
+}
+
+message MotionType {
+    optional MovingTag moving_tag = 1;
+    optional AccInfo acc_info = 2;
+    optional AngularVelInfo angular_vel_info = 3;
+    optional bool is_reversing = 4;
+}
+
+message MotionStateJudgeFrame {
+    optional MotionModel motion_model = 1;
+    repeated MotionType motion_types = 2;
+    repeated float motion_feature = 3;
+}
+
+message DynamicObj{
+    optional OBJObjectClass OBJ_Object_Class = 1;
+    optional uint32	OBJ_Age_Frame = 2; // object tacking frame number
+    optional uint32 OBJ_Object_ID = 3;  //  1 ~ 2 ^ 20（1048576)
+    optional OBJColor	OBJ_Color = 4;
+    optional float OBJ_Existence_Probability = 5;
+    optional bool OBJ_Is_Very_Close = 6;
+    optional OBJLaneAssignment OBJ_Lane_Assignment = 7;
+    optional uint32 OBJ_Measuring_Status = 8; // Bitwise: Bit0: New_Or_Old, Bit1: Predicted_Or_Measured, Bit2: Unstable_Or_Stable,Bit3: Invalid_Or_Valid
+    optional OBJMotionStatus OBJ_Motion_Status = 9;
+    optional OBJMotionCategory OBJ_Motion_Category = 10;
+    optional uint32 OBJ_Is_Blocked_Parts = 11;
+    optional float OBJ_Heading = 12;
+    optional float OBJ_Heading_STD = 13;
+    optional float OBJ_Angle_Rate = 14;
+    optional float OBJ_Angle_Rate_STD = 15;
+    optional OBJBrakeLight OBJ_Brake_Light = 16;//制动灯状态 0: off, 1: on, 2: invisible
+    optional OBJTurnIndicator OBJ_Turn_Indicator = 17 [deprecated=true];//已废弃
+    optional OBJHBStatus OBJ_HB_Status = 18;
+    optional float OBJ_Dst_Left_Line = 19;
+    optional float OBJ_Dst_Right_Line = 20;
+    optional bool OBJ_Is_Blocked_Left = 21;
+    optional bool OBJ_Is_Blocked_Right = 22;
+    optional Position OBJ_Distance = 23;
+    optional Velocity OBJ_Abs_Velocity = 24;
+    optional Acceleration OBJ_Abs_Acc = 25;
+    optional Dimension OBJ_Dimension = 26;
+    optional Source source =27; // object source
+    optional uint32 OBJ_Relate_ID = 28; //Only for vehicle with trailor, the ID of the vehicle
+    optional OBJDoorStatus OBJ_Object_Door_Left_Status = 29; //status of the left Door
+    optional OBJDoorStatus OBJ_Object_Door_Right_Status = 30;
+    optional float OBJ_Cut_In_Lat_Distance = 31;
+    optional float OBJ_Cut_In_Lat_Distance_STD = 32;
+    optional float OBJ_Cut_In_Long_Distance = 33;
+    optional float OBJ_Cut_In_Long_Distance_STD = 34;
+    optional float OBJ_Cut_In_Angle = 35;
+    optional float OBJ_Cut_In_Angle_STD = 36;
+    optional float OBJ_Age_Second = 37; // object tacked time in seconds
+    optional float OBJ_Missing_Age_Second = 38; // object missed tracking time in seconds
+
+    optional LidarClusterObject lidar_cluster_object = 39; // If lidar object has GOD object cluster, this field will be filled
+                                                           // If lidar object only has GOD object cluster, we will generate a dummy box based on cluster info
+    optional LidarObjectDetectionSource lidar_object_detection_source = 40;
+    
+    optional LidarTrajectoryPrediction lidar_trajectory_prediction = 41; // Lidar trajectory prediction output.
+    repeated uint32 OBJ_LaneID = 42 [deprecated=true];
+    optional float OBJ_Ang_Left_Line = 43 [deprecated=true];
+    optional float OBJ_Ang_Right_Line = 44 [deprecated=true];
+
+    optional OBJLightStatus OBJ_Left_Indicator = 45;//左转向灯状态 0: off, 1: on, 2: invisible
+    optional OBJLightStatus OBJ_Right_Indicator = 46;//右转向灯状态 0: off, 1: on, 2: invisible
+    optional float OBJ_Brake_Light_Probability = 47; // 刹车灯状态为on的置信度
+    optional float OBJ_Left_Indicator_Probability = 48; // 左转灯状态为on的置信度
+    optional float OBJ_Right_Indicator_Probability = 49; // 右转灯状态为on的置信度
+
+    optional bool has_articulated_trailers = 50; //是否表达为铰接2节及2节以上的拖挂车，0：false，1：true
+    repeated VehicleBody vehicle_bodies = 51; //including vehicle head and all trailers , 从车头开始依次向后按序填充
+    optional float obj_class_probability = 52 [deprecated=true]; //类别语义置信度，0~1
+    optional float obj_motion_consistent_prob = 53; //运动一致性置信度，0~1
+
+    repeated float OBJ_lane_offset = 54 [deprecated=true]; // od中心点与最近车道线的垂直距离
+    repeated int32 OBJ_lane_relative_pos = 55 [deprecated=true]; // od中心点与最近车道线的相对位置关系
+    repeated float OBJ_lane_relative_pos_score = 56 [deprecated=true]; // od中心点与最近车道线的相对位置关系置信度
+    repeated int32 OBJ_cut_lane = 57 [deprecated=true];       // od是否压线
+    repeated float OBJ_cut_lane_score = 58 [deprecated=true]; // od是否压线置信度
+
+    repeated float obj_aeb_debug_info = 59; // 用于过滤aeb fp的特征
+    optional ObjectPriority priority_level = 60; // object cipv level
+    optional OBJObjectSpecialClass OBJ_Object_SpecialClass = 61;
+    optional float OBJ_Motion_Status_Confidence = 62; // 预留，运动状态置信度
+    optional float OBJ_lane_confidence = 63; // od最近的车道线的置信度 0:low 1:high 0~1:mid
+    optional uint32 OBJ_cross_line = 64; // od是否压线 0:不压 1: 压 2:不确定，如虚线场景车轮旁无车道线
+    optional uint32 OBJ_cross_line_no = 65; // 如果压线，od所压车道的编号
+
+    optional float OBJ_RISK_LEVEL = 66;//危险程度
+    optional LidarTrajectoryPrediction short_term_trajectory_prediction = 67; // Short trajectory prediction output.
+    optional LidarTrajectoryPrediction long_term_trajectory_prediction = 68; // Short trajectory prediction output.
+
+    repeated float OBJ_Finegrain_Feature = 69; //OD Finegrain feature
+    optional OBJCrossIntentionStatus OBJ_Cross_Intention_Indicator = 70; //横穿意图状态
+    optional float OBJ_Cross_Intention_Indicator_Probability = 71;
+    optional OBJTurnIntentionStatus OBJ_Turn_Intention_Indicator = 72; //转向意图状态
+    optional float OBJ_Turn_Intention_Indicator_Probability = 73;
+    optional OBJFinegrainMotionStatus OBJ_Finegrain_Motion_Indicator = 74; //动静状态
+    optional float OBJ_Finegrain_Motion_Indicator_Probability = 75;
+    optional OBJAttentionStatus OBJ_Attention_Indicator = 76; //注意力状态
+    optional float OBJ_Attention_Indicator_Probability = 77;
+    optional OBJInteractionStatus OBJ_Interaction_Indicator = 78; //交互关注性
+    optional float OBJ_Interaction_Indicator_Probability = 79;
+    optional MotionStateJudgeFrame motion_state_judge_frame = 80; // 用于debug motionjudge模块
+
+    optional float OBJ_YIELD_PROB = 81;//是否需要对改该障碍物让行的概率，0为不需要，1为需要，为（0～1）的范围
+    optional float OBJ_TTC_LEVEL = 82;//假设本车维持当前运动状态（匀速）一段时间后，多久本车会碰撞该障碍物
+    optional LidarClusterObject vision_god = 83; // If lidar object has GOD object cluster, this field will be filled
+                                                 // If lidar object only has GOD object cluster, we will generate a dummy box based on cluster info
+    optional uint32 OBJ_Original_Object_ID_Camera = 84;         // For HMI association, object id from nnpost camera object
+    optional uint64 OBJ_Original_Sensor_Timestamp_Camera = 85;  // For HMI association, timestamp of camera observation
+    optional float OBJ_Heading_UNC = 86; // uncertainty and inconsistency measure for heading angle, unit: rad
+    optional float OBJ_Angle_Rate_UNC = 87; // uncertainty and inconsistency measure for heading angle rate, unit: rad/s
+    optional float OBJ_RCM_RISK_LEVEL = 88;//后向预警危险程度
+    optional float OBJ_RCM_YIELD_PROB = 89;//后向预警是否需要对该障碍物预警的概率，0为不需要，1为需要，为（0～1）的范围
+    optional float OBJ_Overall_UNC = 90; // combined overall state uncertainty and inconsistency measure, unit: std-dev, in [0,inf)
+    optional float OBJ_RISK_LEVEL_LB = 91;// low break 危险程度, 定义如 OBJ_RISK_LEVEL
+    optional float OBJ_YIELD_PROB_LB = 92;// low break 是否需要对改该障碍物让行的概率, 定义如 OBJ_YIELD_PROB
+    optional float OBJ_RISK_LEVEL_WARNING = 93;// warning 危险程度, 定义如 OBJ_RISK_LEVEL
+    optional float OBJ_YIELD_PROB_WARNING = 94;// warning 是否需要对改该障碍物让行的概率, 定义如 OBJ_YIELD_PROB
+    optional float OBJ_RELEASE_LEVEL = 95;// aeb release 刹车释放程度, 定义如 OBJ_RISK_LEVEL
+    optional float OBJ_RELEASE_PROB = 96;// aeb release 是否需要刹车释放的概率, 定义如 OBJ_YIELD_PROB
+    optional float OBJ_RAEB_RISK_LEVEL = 97; // 后向RAEB目标的危险程度
+    optional float OBJ_RAEB_YIELD_PROB = 98; // 后向RAEB是否需要对该障碍物让行的概率，0为不需要，1为需要，为（0～1）的范围
+
+    optional OBJDoorStatus trunk_status = 99;   // 后备箱状态
+
+    enum OBJObjectClass{
+        OBJObjectClass_Unknown = 0;
+        OBJObjectClass_SmallVehicle = 100;
+        OBJObjectClass_Car = 101; // 七座以下家用小车
+        OBJObjectClass_SUV = 102; // SUV+MPV
+        OBJObjectClass_PickUp = 103; // 皮卡
+        OBJObjectClass_MPV_VAN = 104; // 此处仅指代VAN厢式货车,MPV归类到SUV
+        OBJObjectClass_BigVehicle = 200;
+        OBJObjectClass_Truck = 201; // 卡车，清扫车，洒水车
+        OBJObjectClass_BUS = 202; // 公交车，包含各种有轨电车和无轨电车，以及双层公交车、载客大巴车
+        OBJObjectClass_Special_Truck = 203; // 工程车，异型车
+        OBJObjectClass_Trailer = 204;
+        OBJObjectClass_Tricycle = 300; // 三轮车，三轮的老年代步车，四轮的老年代步车归属于car
+        OBJObjectClass_Two_wheels_vehicle = 400; // without Pedestrian
+        OBJObjectClass_Motorbike = 401; // without Pedestrian
+        OBJObjectClass_Ebike = 402; // without Pedestrian
+        OBJObjectClass_Bicycle = 403; // without Pedestrian
+        OBJObjectClass_Two_wheels_vehicle_P = 410; // with Pedestrian
+        OBJObjectClass_Motorbike_P = 411; // with Pedestrian
+        OBJObjectClass_Ebike_P = 412; // with Pedestrian
+        OBJObjectClass_Bicycle_P = 413; // with Pedestrian
+        OBJObjectClass_Pedestrian = 500;
+        OBJObjectClass_Adult = 501;
+        OBJObjectClass_Child = 502;
+        OBJObjectClass_Animal = 600;
+        OBJObjectClass_Cat = 601;
+        OBJObjectClass_Dog = 602;
+        OBJObjectClass_Special = 700;
+        OBJObjectClass_Pram = 701; // 婴儿车
+        OBJObjectClass_ShoppingCart = 702; // 购物车
+    }
+
+    enum OBJObjectSpecialClass{
+        OBJObjectSpecialClass_Unknown = 0;
+        OBJObjectSpecialClass_PoliceCar = 101; // 警车
+        OBJObjectSpecialClass_Ambulance = 102; // 救护车
+        OBJObjectSpecialClass_FireTruck = 103; // 消防车
+        OBJObjectSpecialClass_EngineeringVehicle = 104; // 工程抢险车
+        OBJObjectSpecialClass_RoadMaintenanceVehicle = 105; // 道路养护车
+        OBJObjectSpecialClass_WateringCar = 106; // 洒水车
+        OBJObjectSpecialClass_SanitationCar = 107; // 环卫车
+        OBJObjectSpecialClass_SchoolBus = 108; // 校车
+        OBJObjectSpecialClass_ConstructionVehicle = 109;  // 施工车
+        OBJObjectSpecialClass_RidePolice = 201; // 骑警
+        OBJObjectSpecialClass_DeliveryRider = 202; // 骑行外卖员
+        OBJObjectSpecialClass_Police = 301; // 警察
+        OBJObjectSpecialClass_DeliveryPerson = 302; // 步行外卖员
+    }
+
+    enum OBJColor{
+        OBJColor_Unknown = 0;
+        OBJColor_White = 1;
+        OBJColor_Black = 2;
+        OBJColor_Blue = 3;
+        OBJColor_Red = 4;
+    }
+  
+    enum OBJLaneAssignment{
+        OBJLaneAssignment_Unknown = 0;
+        OBJLaneAssignment_Host = 1;
+        OBJLaneAssignment_Left = 2;
+        OBJLaneAssignment_Right = 3;
+        OBJLaneAssignment_Left_Left = 4;
+        OBJLaneAssignment_Right_Right = 5;
+        OBJLaneAssignment_Host_Left_Line = 6;//OD压线的Role,Role的定义与vision_road_detection.proto中LDRole一致
+        OBJLaneAssignment_Host_Right_Line = 7;
+        OBJLaneAssignment_Adjacent_Left_Left_Line = 8;
+        OBJLaneAssignment_Adjacent_Left_Right_Line = 9;
+        OBJLaneAssignment_Adjacent_Right_Left_Line = 10;
+        OBJLaneAssignment_Adjacent_Right_Right_Line = 11;
+        OBJLaneAssignment_LeftLeft_Left_Line = 12;
+        OBJLaneAssignment_LeftLeft_Right_Line = 13;
+        OBJLaneAssignment_RightRight_Left_Line = 14;
+        OBJLaneAssignment_RightRight_Right_Line = 15;
+    }
+
+    enum OBJMotionStatus{
+        OBJMotionStatus_Unknown = 0;
+        OBJMotionStatus_Static = 1;
+        OBJMotionStatus_Stopped = 2;
+        OBJMotionStatus_Moving_Slowly = 3;
+        OBJMotionStatus_Moving = 4;
+        OBJMotionStatus_RearMoving = 5;
+    }
+
+    enum OBJMotionCategory{
+        OBJMotionCategory_Unknown = 0;
+        OBJMotionCategory_Passing_In = 1;
+        OBJMotionCategory_Passing_Out = 2;
+        OBJMotionCategory_Close_Cut_In = 3;
+        OBJMotionCategory_Moving_In = 4;
+        OBJMotionCategory_Moving_Out = 5;
+        OBJMotionCategory_Left_Crossing = 6;
+        OBJMotionCategory_Right_Crossing = 7;
+        OBJMotionCategory_LTAP = 8; //Left turn
+        OBJMotionCategory_RTAP = 9; //Right turn
+        OBJMotionCategory_Preceeding = 10;
+        OBJMotionCategory_Oncoming = 11;
+    }
+
+    enum OBJBrakeLight{
+        OBJBrakeLight_Invalid = 0;
+        OBJBrakeLight_On = 1;
+        OBJBrakeLight_Off = 2;
+    }
+
+    enum OBJTurnIndicator{
+        OBJTurnIndicator_Off = 0;
+        OBJTurnIndicator_Left = 1;
+        OBJTurnIndicator_Right = 2;
+        OBJTurnIndicator_Both = 3;
+    }
+
+    enum OBJLightStatus{
+        OBJLight_Invalid = 0;
+        OBJLight_On = 1;
+        OBJLight_Off = 2;
+    }
+
+    enum OBJHBStatus{
+        OBJHBStatus_Off = 0;
+        OBJHBStatus_On = 1;
+        OBJHBStatus_Blink = 2;
+    }
+
+    enum OBJDoorStatus{
+        OBJDoorStatus_Close = 0;
+        OBJDoorStatus_Open = 1;
+        OBJDoorStatus_Partial = 2;
+    }
+
+    enum OBJCrossIntentionStatus{
+        OBJCrossIntentionStatus_Not_Crossing = 0;
+        OBJCrossIntentionStatus_Has_Cross_Intention = 1;
+        OBJCrossIntentionStatus_Crossing = 2;
+        OBJCrossIntentionStatus_Invalid = 3;
+    }
+
+    enum OBJTurnIntentionStatus{
+        OBJTurnIntentionStatus_Not_Turning = 0;
+        OBJTurnIntentionStatus_Turning_Left = 1;
+        OBJTurnIntentionStatus_Turning_Right = 2;
+        OBJTurnIntentionStatus_Invalid = 3;
+    }
+
+    enum OBJFinegrainMotionStatus{
+        OBJFinegrainMotionStatus_Not_Moving = 0;
+        OBJFinegrainMotionStatus_Moving = 1;
+        OBJFinegrainMotionStatus_Invalid = 2;
+    }
+
+    enum OBJAttentionStatus{
+        OBJAttentionStatus_Not_Looking = 0;
+        OBJAttentionStatus_Looking = 1;
+        OBJAttentionStatus_Invalid = 2;
+    }
+
+    enum OBJInteractionStatus{
+        OBJInteractionStatus_Not_Concern = 0;
+        OBJInteractionStatus_Concern = 1;
+        OBJInteractionStatus_Invalid = 2;
+    }
+   
+}
+
+message StaticObjects {
+    optional uint32 OBS_Age = 1; //object tacked time in milliseconds
+    optional uint32 OBS_ID = 2;
+    optional ObsType OBS_Type = 3;
+    optional float OBS_Type_Probability = 4;
+    optional float OBS_Lat_Distance = 5;
+    optional float OBS_Lat_Distance_STD = 6;
+    optional float OBS_Long_Distance = 7;
+    optional float OBS_Long_Distance_STD = 8;
+    optional float OBS_Object_Length = 9;
+    optional float OBS_Object_Length_STD = 10;
+    optional float OBS_Object_Width = 11;
+    optional float OBS_Object_Width_STD = 12;
+    optional float OBS_Object_Height = 13;
+    optional float OBS_Object_Height_STD = 14;
+    optional Source source = 15; // object source
+    optional LidarClusterObject lidar_cluster_object = 16; // If lidar object has GOD object cluster, this field will be filled
+                                                           // If lidar object only has GOD object cluster, we will generate a dummy box based on cluster info
+    optional LidarObjectDetectionSource lidar_object_detection_source = 17;
+    optional OBSLaneAssignment OBS_Lane_Assignment = 18;
+    repeated uint32 OBS_LaneID = 19 [deprecated=true];
+    optional float OBS_Heading = 20;
+    optional float OBS_Heading_STD = 21;
+    optional float OBS_Vertical_Distance = 22 [deprecated=true];
+    optional float OBS_Vertical_Distance_STD = 23;
+    optional float OBS_Dst_Left_Line = 24;
+    optional float OBS_Dst_Right_Line = 25;
+    optional float OBS_Ang_Left_Line = 26 [deprecated=true];
+    optional float OBS_Ang_Right_Line = 27;
+    optional float obs_existence_probability = 28; //存在置信度，0~1
+    
+    optional ObjectPriority priority_level = 30; // object cipv level
+
+    repeated float obj_debug_info = 29; // 用于OD debug信息
+    optional uint32 OBJ_Measuring_Status = 31; // Bitwise: Bit0: New_Or_Old, Bit1: Predicted_Or_Measured, Bit2: Unstable_Or_Stable,Bit3: Invalid_Or_Valid
+    optional float OBJ_lane_confidence = 32; // od最近的车道线的置信度 0:low 1:high 0~1:mid
+    repeated float sod_aeb_debug_info = 33; // debug信息，用于收集sod confidence feature，优化goa功能
+    repeated float god_aeb_debug_info = 34; // debug信息，用于收集god confidence feature，优化goa功能
+    optional LidarClusterObject vision_god = 35; // If lidar object has GOD object cluster, this field will be filled
+                                                 // If lidar object only has GOD object cluster, we will generate a dummy box based on cluster info
+    optional float OBS_Risk_Level = 36; //危险程度
+    optional float OBS_Yield_Prob = 37; //是否需要对改该障碍物让行的概率，0为不需要，1为需要，为（0～1）的范围
+
+    optional uint32 OBS_Gate_Machine_Status = 38;  // Unknown = 0;closed = 1;opening = 2;open = 3; BL310 闸机检测需求新增
+
+    enum ObsType{
+        ObsType_Invalid = 0;
+        ObsType_Barrel = 1; //圆桶
+        ObsType_Cone = 2; //锥桶
+        ObsType_ShortPole = 3; //交通短柱
+        ObsType_ObstructionBW = 4; //水马
+        ObsType_ObstructionUP = 5;                             //预留，上-导向标识牌
+        ObsType_ObstructionLeft = 6;                           //预留，斜左-导向标识牌
+        ObsType_ObstructionRight = 7;                          //预留，斜右-导向标识牌
+        ObsType_RedWarningSign = 8; //三角警示牌
+        ObsType_FishboneLeft = 9;                              //预留，向左-导向标识牌
+        ObsType_FishboneRight = 10;                            //预留，向右-导向标识牌
+        ObsType_OverheadObject = 11;                           //预留，空中障碍物
+        ObsType_ObsType_Indicator_Arrow_Left = 12;             //预留，左-箭头导向牌
+        ObsType_ObsType_Indicator_Arrow_Right = 13;            //预留，右-箭头导向牌
+        ObsType_ObsType_Indicator_Arrow_Both = 14;             //预留，左右-箭头导向牌
+        ObsType_ObsType_Indicator_Arrow_Left_Up = 15;          //预留，左上-箭头导向牌
+        ObsType_ObsType_Indicator_Arrow_Left_Down = 16;        //预留，左下-箭头导向牌
+        ObsType_ObsType_Indicator_Arrow_Right_Up = 17;         //预留，右上-箭头导向牌
+        ObsType_ObsType_Indicator_Arrow_Right_Down = 18;       //预留，右下-箭头导向牌
+        ObsType_MetalFence = 19;     //金属栅栏
+        ObsType_WarningPole = 20;    //警示隔离杆
+        ObsType_CircularColumn =21;  //低矮杆类柱状物
+        ObsType_StoneColumn =22;     //低矮石头类柱状物
+        ObsType_OtherImpermanentObject = 23;  // Including other impermanent object that class is not included above, such as debris, tire, dropped object
+        ObsType_OtherPermanentObject = 24;  // Including other permanent object that class is not included above, such as building, traffic light, fire hydrant and parterre
+        ObsType_Pillar = 25;         // 立柱
+        ObsType_SquarePillar = 26;   // 方形立柱
+        ObsType_CirclePillar = 27;   // 圆形立柱
+        ObsType_WallPillar = 28;     // 墙柱
+        ObsType_GateMachine = 29;    // 停车场闸机，BL310新增
+    }
+
+    enum OBSLaneAssignment{
+        OBSLaneAssignment_Unknown = 0;
+        OBSLaneAssignment_Host = 1;
+        OBSLaneAssignment_Left = 2;
+        OBSLaneAssignment_Right = 3;
+        OBSLaneAssignment_Left_Left = 4;
+        OBSLaneAssignment_Right_Right = 5;
+        OBSLaneAssignment_Host_Left_Line = 6;//SOD压线的Role,Role的定义与vision_road_detection.proto中LDRole一致
+        OBSLaneAssignment_Host_Right_Line = 7;
+        OBSLaneAssignment_Adjacent_Left_Left_Line = 8;
+        OBSLaneAssignment_Adjacent_Left_Right_Line = 9;
+        OBSLaneAssignment_Adjacent_Right_Left_Line = 10;
+        OBSLaneAssignment_Adjacent_Right_Right_Line = 11;
+        OBSLaneAssignment_LeftLeft_Left_Line = 12;
+        OBSLaneAssignment_LeftLeft_Right_Line = 13;
+        OBSLaneAssignment_RightRight_Left_Line = 14;
+        OBSLaneAssignment_RightRight_Right_Line = 15;
+    }
+
+
+}
+message DynamicObjects {
+    optional ObjInfo OBJ_Info = 1;
+    repeated DynamicObj OBJ = 2;
+}
+
+message PObjectTraceCode {
+    optional uint32 object_id = 1;
+    optional uint32 trace_code = 2;
+}
+
+message PObjectsTrackTrace {
+    optional uint32 trace_version = 1;
+    repeated PObjectTraceCode object_trace_code = 2;
+}
+
+message OracleWayPoint {
+    // position of the way point in global frame in m
+    optional Vector3d position = 1;
+
+    // curvature of the way point in rad/m
+    optional float kappa = 2;
+
+    // speed stamped on the path point in m/s
+    optional float speed = 3;
+
+    // acceleration stamped on the way point in m/s^2
+    optional float acceleration = 4;
+
+    // yaw rate stamped on the way point in rad/s
+    optional float yaw_rate = 5;
+
+    // yaw stamped on the way point in rad
+    optional float yaw = 6;
+}
+
+message OracleTrajectory {
+    enum OracleTrajectorySource {
+        OracleTrajectorySource_Unknown = 0;
+        OracleTrajectorySource_Model = 1;
+        OracleTrajectorySource_Post = 2;
+        OracleTrajectorySource_Reward = 3;
+        OracleTrajectorySource_ModelRefined = 4;
+        OracleTrajectorySource_GoalPoints = 5;
+        OracleTrajectorySource_Uturn = 6;
+    }
+
+    enum SceneType {
+        SceneType_INVALID = 0;
+        SceneType_FOLLOW = 1; // include straight, lane change, nudge now
+        SceneType_TURN_LEFT = 2;
+        SceneType_TURN_RIGHT = 3;
+        SceneType_U_TURN_LEFT = 4;
+        SceneType_U_TURN_RIGHT = 5;
+        SceneType_LEFT_NUDGE = 6;
+        SceneType_RIGHT_NUDGE = 7;
+        SceneType_LEFT_CHANGE = 8;
+        SceneType_RIGHT_CHANGE = 9;
+        SceneType_3PT_U_TURN_LEFT = 10;
+        SceneType_3PT_U_TURN_RIGHT = 11;
+        SceneType_OTHERS = 100;
+    }
+
+    // length 35, waypoints are spaced out by 0.2s
+    repeated OracleWayPoint trajectory = 1;
+
+    // used for predicted agents and ego
+    optional float probability = 2;
+
+    // used for multi scene for ego trajectory
+    optional SceneType trajectory_scene_type = 3;
+
+    optional OracleTrajectorySource oracle_traj_source = 4;
+
+    repeated uint32 traj_traces = 5;
+}
+
+message PredictedAgent {
+    enum AgentIntentionType {
+        AgentIntentionType_UNKNOW = 0;
+        AgentIntentionType_CUT_IN = 1;
+        AgentIntentionType_CUT_OUT = 2;
+        AgentIntentionType_CROSSING = 3;
+        AgentIntentionType_DEAD = 4;
+        AgentIntentionType_CLOSE_CUT_IN = 5;
+        AgentIntentionType_UNCERTAIN_BEHAVIOR = 6;
+        AgentIntentionType_ONCOMING = 7;
+    }
+
+    enum Ego2AgentDecisionType {
+        Ego2AgentDecisionType_UNKNOW = 0;
+        Ego2AgentDecisionType_IGNORE = 1;
+        Ego2AgentDecisionType_FOLLOW = 100;
+        Ego2AgentDecisionType_YIELD = 200;
+        Ego2AgentDecisionType_OVERTAKE = 300;
+        Ego2AgentDecisionType_NUDGE = 400;
+    }
+
+    message ScenarioAttr {
+        repeated Ego2AgentDecisionType ego2agent_decision_type = 1; // ego2agent decision type,maybe multi-possibilities
+        repeated float ego2agent_decision_score = 2; // ego2agent decision score
+        optional AgentIntentionType agent_intention_type = 3; //agent intention type
+        optional float agent_intention_score = 4; // agent intention score
+    }
+
+    enum AgentMotionStatus{
+        AgentMotionStatus_Unknown = 0;
+        AgentMotionStatus_Static = 1;
+        AgentMotionStatus_Stopped = 2;
+        AgentMotionStatus_Moving_Slowly = 3;
+        AgentMotionStatus_Moving = 4;
+        AgentMotionStatus_RearMoving = 5;
+        AgentMotionStatus_Start = 6;
+        AgentMotionStatus_Dead = 7;
+        AgentMotionStatus_Hard_Break = 8;
+        AgentMotionStatus_LTAP = 9;
+        AgentMotionStatus_RTAP = 10;
+        AgentMotionStatus_Accelerating = 11;
+        AgentMotionStatus_Cruising = 12;
+        AgentMotionStatus_LC_Left = 13;
+        AgentMotionStatus_LC_Right = 14;
+    }
+
+    enum AgentPredictionType {
+        AgentPredictionType_UNKNOW = 0;
+        AgentPredictionType_RUlE_BASED = 1;
+        AgentPredictionType_MARGINAL_NN_BASED = 2;
+    }
+
+    enum AgentPriorityType {
+        AgentPriorityType_UNKNOW = 0;
+        AgentPriorityType_LOW = 1;
+        AgentPriorityType_NORMAL = 2;
+        AgentPriorityType_HIGH = 3;
+        AgentPriorityType_RECALL_HIGH = 4;
+        AgentPriorityType_PRECISION_HIGH = 5;
+        AgentPriorityType_EGO_LONG_HIGH = 6;
+        AgentPriorityType_EGO_LAT_HIGH = 7;
+    }
+
+    optional int32 agent_id = 1; // perception objects id
+    repeated OracleTrajectory agent_trajectories = 2; // 6 trajectories per agent, marginal multi-modal agent trajectories
+    optional AgentPredictionType agent_prediction_type = 3; // prediction method
+    repeated AgentPriorityType agent_multi_priorities_type = 4; // agent multi priorities
+    repeated float agent_multi_priorities_score = 5; // agent multi priorities score
+    repeated uint32 agent_traces = 6;
+    map<uint32, ScenarioAttr> scenario_attributes = 7;
+    optional float heading = 8;
+    optional float heading_std = 9;
+    optional float angle_rate = 10;
+    optional float angle_rate_std = 11;
+    optional Position distance = 12;
+    optional Velocity abs_velocity = 13;
+    optional Acceleration abs_acc = 14;
+    repeated float reverse = 1000;
+}
+
+message OraclePredictedAgents{
+    repeated PredictedAgent predicted_agents = 1;  // Num of agents == perception objects inputs
+}
+
+message ObjectsDetection{
+    optional uint64 timestamp = 1;//ptp sensor time of perception result, unit: ns
+    repeated StaticObjects staticobj = 2;
+    optional DynamicObjects dynamicobj = 3;
+    optional EgoCarTrajectory egocartraj = 4;
+    optional PObjectsTrackTrace objects_track_trace = 5;
+    optional uint32 trigger_source = 6;
+    optional OraclePredictedAgents oracle_predicted_agents = 7; // the output of predicted agents
+
+    optional SensorTSHeader sensor_original_ts = 536870906;   // sensor original ts
+    optional uint64 publish_ptp_ts = 536870907;   // publish ptp timestamp, uint in nanosec
+    optional string publisher_id = 536870909;     // uuid of the publisher
+    optional uint64 counter = 536870910;         // message counter
+    optional uint64 publish_ts = 536870911;      // publish utc timestamp; unit : nanosecond
+}

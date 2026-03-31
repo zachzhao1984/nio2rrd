@@ -1,0 +1,121 @@
+syntax = "proto2";
+
+package nio.ad.messages;
+
+import "np/apps/parking/par_pnc_point.proto";   // For SLPoint
+
+message Vector2d {
+  optional double x = 1;
+  optional double y = 2;
+}
+
+message Vector2f {
+  optional double x = 1;
+  optional double y = 2;
+}
+
+
+message Vector3d {
+  optional double x = 1;
+  optional double y = 2;
+  optional double z = 3;
+}
+
+message Vector3f {
+  optional double x = 1;
+  optional double y = 2;
+  optional double z = 3;
+}
+
+message Quaternionf {
+  optional double w = 1 [default = 1];
+  optional double x = 2;
+  optional double y = 3;
+  optional double z = 4;
+}
+
+message Transformation3d {
+  message Quaterniond {
+    optional double w = 1 [default = 1];
+    optional double x = 2;
+    optional double y = 3;
+    optional double z = 4;
+  }
+  optional Vector3d position = 1;
+  optional Quaterniond orientation = 2;
+  optional Vector3d orientation_rpy = 3;
+}
+
+message Transformation3f {
+  optional Vector3d position = 1;
+  optional Quaternionf orientation = 2;
+}
+
+// A simple polygon consisting of non-intersecting line segments. Points must be
+// clockwise. Polygon is expected to have a close end, i.e., the last point
+// should always repeat the first point. Polygon represents a 2D shape. The
+// height is usually ignored.
+message Polygon {
+  repeated Vector3d points = 1;
+  optional uint64 id = 2;
+}
+
+message Polyline {
+  repeated Vector3d point = 1;
+  optional uint64 id = 2;
+}
+
+// A point in the map reference frame. The map defines an origin, whose
+// coordinate is (0, 0, 0).
+// Most modules, including localization, perception, and prediction, generate
+// results based on the map reference frame.
+// Currently, the map uses Universal Transverse Mercator (UTM) projection. See
+// the link below for the definition of map origin.
+//   https://en.wikipedia.org/wiki/Universal_Transverse_Mercator_coordinate_system
+// The z field of PointENU can be omitted. If so, it is a 2D location and we do
+// not care its height.
+message PointENU {
+  optional double x = 1 [default = nan];  // East from the origin, in meters.
+  optional double y = 2 [default = nan];  // North from the origin, in meters.
+  optional double z = 3 [default = 0.0];  // Up from the WGS-84 ellipsoid, in
+  // meters.
+}
+
+/////////////////////////////////////////////////////////////////
+// The start_s and end_s are longitudinal values.
+// start_s <= end_s.
+//
+//              end_s
+//                ^
+//                |
+//          S  direction
+//                |
+//            start_s
+//
+// The start_l and end_l are lateral values.
+// start_l <= end_l. Left side of the reference line is positive,
+// and right side of the reference line is negative.
+//  end_l  <-----L direction---- start_l
+/////////////////////////////////////////////////////////////////
+
+message SLBoundary {
+  optional double start_s = 1;
+  optional double end_s = 2;
+  optional double start_l = 3;
+  optional double end_l = 4;
+  repeated SLPoint boundary_point = 5;
+}
+
+message STPoint {
+  optional double s = 1;
+  optional double t = 2;
+}
+
+message STBoundary {
+  optional double min_s = 1;
+  optional double max_s = 2;
+  optional double min_t = 3;
+  optional double max_t = 4;
+  repeated STPoint lower_boundary_point = 5;
+  repeated STPoint upper_boundary_point = 6;
+}

@@ -1,0 +1,95 @@
+syntax = "proto2";
+package nio.ad.messages;
+import "common/perf/sensor_ts_header.proto";
+
+message GnssResult {
+
+  message UTCTime {
+    optional uint32 year  = 1;  // [2020, 2038]
+    optional uint32 month = 2;  // [1, 12]
+    optional uint32 day   = 3;  // [1, 31]
+    optional uint32 hour  = 4;  // [0,24)
+    optional uint32 min   = 5;  // [0, 60)
+    optional uint32 sec   = 6;  // [0, 60)
+    optional float  msec  = 7;  // [0, 999]
+  }
+
+  message DOPValue {
+    optional float gdop = 1;    // gemometric dilution of precision
+    optional float pdop = 2;    // position dilution of precision
+    optional float hdop = 3;    // horizontal dilution of precision
+    optional float vdop = 4;    // vertical dilution of precision
+    optional float tdop = 5;    // time dilution of precision
+  }
+
+  enum GnssStatus {
+    NONE         = 0;           // gnss invalid 
+    SINGLE       = 1;           // single point
+    DGPS         = 2;
+    RTK_FIX      = 4;            
+    RTK_FLOAT    = 5;
+  }
+  
+  enum GDPRStatus_e {
+    GNSS_OFF                = 0;  // off
+    GNSS_ON_ENABLE_SHARING  = 1;  // on & enable sharing, the gnss data could be used in vehicle and out of vehicle
+    GNSS_ON_DISABLE_SHARING = 2;  // on & disable sharing, the gnss data should be used in vehicle.
+  }
+
+  optional UTCTime utc_time         = 1;
+
+  optional GnssStatus position_type = 2;   
+  optional DOPValue dop_value       = 3;   // dilution of precision
+  optional double latitude          = 4;   // degree, [-90, 90]
+  optional double longitude         = 5;   // degree, [-180, 180]
+  optional float msl_height         = 6;   // meters, Position's Height above mean sea level
+  optional float undulation         = 7;   // meters, undulation of height, ellipsoidal height = msl_height + undulation
+
+  optional float velocity_e         = 8;   // speed in east, m/s
+  optional float velocity_n         = 9;   // speed in north, m/s
+  optional float velocity_u         = 10;  // speed upward, m/s
+
+  optional GnssStatus ort_type 	    = 11;  // orientation type with the same definition with position type
+  optional float roll               = 12;  // rotation angle of the car around x axis, which follows ISO standard, x - front, y - left, z - up
+  optional float pitch              = 13;  // rotation angle of the car around y axis, which follows ISO standard, x - front, y - left, z - up 
+  optional float yaw                = 14;  // rotation angle of the car around z axis, which follows ISO standard, x - front, y - left, z - up, yaw = 0 when the car faces east
+
+  optional float std_lat            = 20;  // radian   (0 99.9999]
+  optional float std_long           = 21;  // radian   (0 99.9999]
+  optional float std_height         = 22;  // m        (0 99.9999]
+
+  optional float std_vel_e          = 23;  // m/s (0 99.9999]
+  optional float std_vel_n          = 24;  // m/s (0 99.9999]
+  optional float std_vel_u          = 25;  // m/s (0 99.9999]
+
+  optional float std_roll           = 26;  // radian   (0 99.9999]
+  optional float std_pitch          = 27;  // radian   (0 99.9999]
+  optional float std_yaw            = 28;  // radian   (0 99.9999]
+
+  optional double itow_time         = 30;  // s  [0, 604800000), seconds from the beginning of the GPS reference week
+  optional uint32 gps_ref_week      = 31;  // GPS reference week number, [0, 3072)
+  optional uint32 leap_second       = 32;  // leap seconds between GPS time and UTC time 
+  optional uint32 num_sat_used      = 33;  // number of used satellites [0, 50]
+  optional GDPRStatus_e gdpr_status = 34;
+  optional uint64 timestamp_ptp_ns  = 35;  // rtk message ptp timestamp, according to utc_time = 1, uint in nanosec
+  optional double rtk_age           = 36;  // The age of ntrip correction, unit in second 
+  optional double dual_ant_baseline = 37;  // real-time calculated value of baseline length
+  repeated bytes nmea_gsv           = 38;  // NMEA format GNGSV logs
+  optional uint32 device_id         = 39;  // gnss/imu device supplier identification
+  optional uint32 num_sat_track     = 40;  // number of tracking satellites [0, 50]
+  optional double cog               = 41;  // heading
+  
+  // origin gnss info
+  optional uint32 num_sat_origin    = 1001;  // number of origin satellites from diagnosis request
+  optional uint32 num_sat_cn040     = 1002;  // number of origin satellites' L1&L5 CN0 >= 40
+  optional uint32 num_sat_L1_cn040  = 1003;  // number of origin satellites' L1 CN0 >= 40
+  optional uint32 num_sat_L5_cn040  = 1004;  // number of origin satellites' L5 CN0 >= 40
+  optional uint32 pos_status        = 1005;  // gnss pos_status
+
+  optional uint64 timestamp = 536870905; // ptp timestamp, nanosecond，used for data bundle readin 
+  optional SensorTSHeader sensor_original_ts = 536870906;  // sensor original ts
+  optional uint64 publish_ptp_ts             = 536870907;  // publish ptp timestamp, uint in nanosec
+  optional string publisher_id               = 536870909;  // uuid of the publisher
+  optional uint64 counter                    = 536870910;  // message counter
+  optional uint64 publish_ts                 = 536870911;  // publish utc timestamp; unit : nanosecond
+}

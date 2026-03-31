@@ -1,0 +1,267 @@
+syntax = "proto2";
+
+package nio.ad.messages;
+
+import "common/pnc/geometry.proto";
+import "common/pnc/prediction.proto";
+import "common/perf/sensor_ts_header.proto";
+import "common/perception/lidar_cluster_output.proto";
+import "common/perception/uss_base.proto";
+import "common/perception/multisource_object.proto";
+
+enum ObjLightStatus {
+  kObjLightStatus_Invalid = 0;
+  kObjLightStatus_ON = 1;
+  kObjLightStatus_OFF = 2;
+}
+
+enum PncObjClassType{
+    Pnc_ObjectClass_Unknown = 0;
+    //static objects
+    Pnc_ObsType_Barrel = 1; //圆桶
+    Pnc_ObsType_Cone = 2; //锥桶
+    Pnc_ObsType_ShortPole = 3; //交通短柱
+    Pnc_ObsType_ObstructionBW = 4; //水马
+    Pnc_ObsType_ObstructionUP = 5;                             //预留，上-导向标识牌
+    Pnc_ObsType_ObstructionLeft = 6;                           //预留，斜左-导向标识牌
+    Pnc_ObsType_ObstructionRight = 7;                          //预留，斜右-导向标识牌
+    Pnc_ObsType_RedWarningSign = 8; //三角警示牌
+    Pnc_ObsType_FishboneLeft = 9;                              //预留，向左-导向标识牌
+    Pnc_ObsType_FishboneRight = 10;                            //预留，向右-导向标识牌
+    Pnc_ObsType_OverheadObject = 11;                           //预留，空中障碍物
+    Pnc_ObsType_ObsType_Indicator_Arrow_Left = 12;             //预留，左-箭头导向牌
+    Pnc_ObsType_ObsType_Indicator_Arrow_Right = 13;            //预留，右-箭头导向牌
+    Pnc_ObsType_ObsType_Indicator_Arrow_Both = 14;             //预留，左右-箭头导向牌
+    Pnc_ObsType_ObsType_Indicator_Arrow_Left_Up = 15;          //预留，左上-箭头导向牌
+    Pnc_ObsType_ObsType_Indicator_Arrow_Left_Down = 16;        //预留，左下-箭头导向牌
+    Pnc_ObsType_ObsType_Indicator_Arrow_Right_Up = 17;         //预留，右上-箭头导向牌
+    Pnc_ObsType_ObsType_Indicator_Arrow_Right_Down = 18;       //预留，右下-箭头导向牌
+    Pnc_ObsType_MetalFence = 19;                               //预留，金属栅栏
+    Pnc_ObsType_WarningPole = 20;    //警示隔离杆
+    Pnc_ObsType_CircularColumn =21;                            //预留，低矮杆类柱状物
+    Pnc_ObsType_StoneColumn =22;                               //预留，低矮石头类柱状物
+    Pnc_ObsType_OtherImpermanentObject = 23;  // Including other impermanent object that class is not included above, such as debris, tire, dropped object
+    Pnc_ObsType_OtherPermanentObject = 24;  // Including other permanent object that class is not included above, such as building, traffic light, fire hydrant and parterre
+    Pnc_ObsType_Pillar = 25;         // 立柱
+    Pnc_ObsType_SquarePillar = 26;   // 方形立柱
+    Pnc_ObsType_CirclePillar = 27;   // 圆形立柱
+    Pnc_ObsType_WallPillar = 28;     // 墙柱
+    Pnc_ObsType_GateMachine = 29;    // 停车场闸机，BL310新增
+    Pnc_ObsType_ParkLockOpen = 30;   // 开启的地锁，BL320新增
+
+    //dynamic objects
+    Pnc_OBJObjectClass_SmallVehicle = 100;
+    Pnc_OBJObjectClass_Car = 101; // 七座以下家用小车
+    Pnc_OBJObjectClass_SUV = 102; // SUV+MPV
+    Pnc_OBJObjectClass_PickUp = 103; // 皮卡
+    Pnc_OBJObjectClass_VAN = 104; // VAN厢式货车
+    Pnc_OBJObjectClass_BigVehicle = 200;
+    Pnc_OBJObjectClass_Truck = 201; // 卡车，清扫车，洒水车
+    Pnc_OBJObjectClass_BUS = 202; // 公交车，包含各种有轨电车和无轨电车，以及双层公交车、载客大巴车
+    Pnc_OBJObjectClass_Special_Truck = 203; // 工程车，异型车
+    Pnc_OBJObjectClass_Trailer = 204;//预留
+    Pnc_OBJObjectClass_Tricycle = 300; // 三轮车，三轮的老年代步车，四轮的老年代步车归属于car
+    Pnc_OBJObjectClass_Two_wheels_vehicle = 400; // without Pedestrian
+    Pnc_OBJObjectClass_Motorbike = 401; // without Pedestrian
+    Pnc_OBJObjectClass_Ebike = 402; //预留, without Pedestrian
+    Pnc_OBJObjectClass_Bicycle = 403; // without Pedestrian
+    Pnc_OBJObjectClass_Two_wheels_vehicle_P = 410; // with Pedestrian
+    Pnc_OBJObjectClass_Motorbike_P = 411; // with Pedestrian
+    Pnc_OBJObjectClass_Ebike_P = 412; //预留, with Pedestrian
+    Pnc_OBJObjectClass_Bicycle_P = 413; // with Pedestrian
+    Pnc_OBJObjectClass_Pedestrian = 500;
+    Pnc_OBJObjectClass_Adult = 501; //预留
+    Pnc_OBJObjectClass_Child = 502; //预留
+    Pnc_OBJObjectClass_Animal = 600; //预留
+    Pnc_OBJObjectClass_Cat = 601; //预留
+    Pnc_OBJObjectClass_Dog = 602; //预留
+    Pnc_OBJObjectClass_Special = 700; //预留
+    Pnc_OBJObjectClass_Pram = 701; //预留, 婴儿车
+    Pnc_OBJObjectClass_ShoppingCart = 702; //预留, 购物车
+}
+
+enum ObjCrossIntentionStatus {
+  ObjCrossIntentionStatus_Not_Crossing = 0;
+  ObjCrossIntentionStatus_Has_Cross_Intention = 1;
+  ObjCrossIntentionStatus_Crossing = 2;
+  ObjCrossIntentionStatus_Invalid = 3;
+}
+
+enum ObjTurnIntentionStatus {
+  ObjTurnIntentionStatus_Not_Turning = 0;
+  ObjTurnIntentionStatus_Turning_Left = 1;
+  ObjTurnIntentionStatus_Turning_Right = 2;
+  ObjTurnIntentionStatus_Invalid = 3;
+}
+
+enum ObjFinegrainMotionStatus {
+  ObjMotionStatus_Not_Moving = 0;
+  ObjMotionStatus_Moving = 1;
+  ObjMotionStatus_Invalid = 2;
+}
+
+enum ObjAttentionStatus {
+  ObjAttentionStatus_Not_Looking = 0;
+  ObjAttentionStatus_Looking = 1;
+  ObjAttentionStatus_Invalid = 2;
+}
+
+enum ObjInteractionStatus {
+  ObjInteractionStatus_Not_Concern = 0;
+  ObjInteractionStatus_Concern = 1;
+}
+
+message PerceptionObject {
+  optional int32 id = 1;  // usually between 0 and 9999
+
+  optional Vector3d position = 2;  // in the map frame
+  optional Vector3d velocity =
+      3;  // east/north/up with respect to the map frame
+  optional Vector3d acceleration =
+      4;  // east/north/up with respect to the map frame
+  optional Vector3d radar_acceleration =
+      4010;  // east/north/up with respect to the map frame
+
+  // heading of object in range [-pi, pi), (east = 0, north = pi/2, west = -pi,
+  // south = -pi/2)
+  optional double heading = 5;
+  optional Vector3d bounding_box = 6;  // length/width/height
+  optional Polygon polygon = 7;  // object corner points, 2D, in the map frame
+
+  optional fixed64 tracking_time =
+      8;  // duration of tracking since detection, in ns
+
+  enum Type {
+    UNKNOWN = 0;
+    UNKNOWN_STATIC = 1;
+    UNKNOWN_DYNAMIC = 2;
+    PEDESTRIAN = 3;
+    BIKE = 4;
+    CAR = 5;
+    TRUCK = 6;
+    CONE = 7;
+    BOUNDARY = 8;
+    RED_WARNING_SIGN = 9;
+    LOCAL_ROUTE_END = 10;
+    GATE_MACHINE = 11;
+  };
+  optional Type type = 9;
+
+  repeated Prediction prediction = 10;
+
+  enum Source {
+    RAVEN = 0 [deprecated = true];
+    ZEALOT = 1 [deprecated = true];
+    LIDAR = 2;
+    CAMERA = 3;
+    RADAR = 4;
+    LIDAR_CAMERA = 5;
+    RADAR_CAMERA = 6;
+    LIDAR_RADAR = 7;
+    LIDAR_RADAR_CAMERA = 8;
+    USS = 9;
+  };
+
+  optional Source source = 11;
+  optional int32 point_cloud_size = 12;
+  repeated uint32 cluster_index = 13;
+
+  enum Coordinate {
+    RELATIVE = 0;
+    GLOBAL = 1;
+  }
+  optional Coordinate coordinate = 14 [deprecated = true];
+  optional bool is_potential_object = 15 [default = false];
+  optional bool is_sheltered_object = 16 [default = false];
+  optional float heading_rate = 17;
+  optional LidarClusterObject lidar_cluster_object =
+      18;  // 2D polygons for GOD from lidar
+  optional LidarObjectDetectionSource lidar_object_detection_source = 19;
+  optional MoObjLaneLoc.ObjLaneAssign lane_assignment_from_perception = 20;
+  optional ObjLightStatus left_indicator = 21;
+  optional ObjLightStatus right_indicator = 22;
+  optional float brake_light_probability = 23;
+  optional float left_indicator_probability = 24;
+  optional float right_indicator_probability = 25;
+  optional ObjLightStatus break_indicator = 26;
+  optional float perception_moving_consistency = 27;
+  optional float moving_consistency = 28;
+  optional float common_confidence = 29;
+  optional uint32 obj_sub_class = 30;
+  optional float obj_lane_uncertainty = 31 [default = 1.0];
+  optional int32 sheltered_ratio = 32 [default = 0];
+  optional ObjUss obj_uss = 33;
+  optional bool is_static_source = 34 [default = false];
+  optional int32 object_status = 35;
+  optional double s_distance = 36;
+  optional DynObject.ObjClass fusion_object_type =
+      100;  // directly from multisource_object.proto
+  optional int32 object_filter_type = 201 [default = -1];
+  optional bool is_refine_acc = 37 [default = false];
+  optional uint32 behind_guardrail_tag = 38;
+  optional uint32 gate_machine_status = 39; // Unknown = 0;closed = 1;opening = 2;open = 3; BL310 闸机检测需求新增
+
+  optional ObjFinegrainMotionStatus obj_finegrain_motion_indicator =
+      301;  //动静状态
+  optional float obj_finegrain_motion_indicator_probability = 302;
+  optional ObjAttentionStatus obj_attention_indicator = 303;  //注意力状态
+  optional float obj_attention_indicator_probability = 304;
+  optional ObjInteractionStatus obj_interaction_indicator = 305;  //交互关注性
+  optional float obj_interaction_indicator_probability = 306;
+  optional ObjCrossIntentionStatus obj_cross_intention_indicator =
+      307;  //横穿意图状态
+  optional float obj_cross_intention_indicator_probability = 308;
+  optional ObjTurnIntentionStatus obj_turn_intention_indicator =
+      309;  //转向意图状态
+  optional float obj_turn_intention_indicator_probability = 310;
+  repeated float obj_finegrain_feature = 311;  // OD Finegrain feature
+  optional float obj_risk_level = 312 [
+    default = 10.0
+  ];  //目标的危险程度——来自感知模型,假设本车维持当前运动状态（包括加速度），然后按照-8进行刹车，多久本车会碰撞该障碍物
+  optional float obj_yield_prob = 313 [
+    default = -1.0
+  ];  //是否需要对改该障碍物让行的概率，0为不需要，1为需要，为（0～1）的范围
+
+  enum OBJObjectSpecialClass{
+    OBJObjectSpecialClass_Unknown = 0;
+    OBJObjectSpecialClass_PoliceCar = 101; // 警车
+    OBJObjectSpecialClass_Ambulance = 102; // 救护车
+    OBJObjectSpecialClass_FireTruck = 103; // 消防车
+    OBJObjectSpecialClass_RoadMaintenanceVehicle = 104; // 道路养护车.工程抢险车
+    OBJObjectSpecialClass_WateringCar = 105; // 洒水车
+    OBJObjectSpecialClass_RidePolice = 201; // 骑警
+    OBJObjectSpecialClass_Police = 301; // 警察
+  }
+
+  optional OBJObjectSpecialClass OBJ_Object_SpecialClass = 61;
+}
+
+enum ObjectsFrame {
+  EGO = 0;
+  GLOBAL = 1;
+}
+
+message PerceptionObjects {
+  optional uint64 time_meas = 1;  // timestamp from the sensor input, in ns
+  optional uint64 time_pub =
+      2;  // system clock, when the msg is published, in ns
+  repeated PerceptionObject objects = 3;
+  repeated string images = 4;       // 480 x 270 image to show on NUC
+  optional ObjectsFrame frame = 5;  // objects frame
+  optional bool rear_objects_detected =
+      6;  // from  EHYObfOutputs.obf_rear_object_detected
+  optional uint64 timestamp_perception = 7;
+
+  optional uint64 timestamp = 536870905;     // ptp time, nanosec, for cosine bundle timestamp  
+  optional SensorTSHeader sensor_original_ts = 536870906;  // sensor original ts
+  optional uint64 publish_ptp_ts =
+      536870907;  // publish ptp timestamp, uint in nanosec
+  optional string publisher_id = 536870909;  // uuid of the publisher
+  optional uint64 counter = 536870910;       // message counter
+  optional uint64 publish_ts =
+      536870911;  // publish utc timestamp; unit : nanosecond
+}
+
+message PerceptionObjectsRequest {
+  optional Polygon polygon = 1;  // in the map frame
+}

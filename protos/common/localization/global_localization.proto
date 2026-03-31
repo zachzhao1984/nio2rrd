@@ -1,0 +1,153 @@
+syntax = "proto2";
+package nio.ad.messages;
+import "common/perf/sensor_ts_header.proto";
+
+import "common/localization/geometry.proto";
+
+import "common/localization/map_topo_localization.proto";
+
+import "common/localization/global_routes.proto";
+
+import "common/localization/lmm_transparent_info.proto";
+
+
+// Refs: https://nio.feishu.cn/docs/doccn9gPfk2XQBK1aR9rLykc1eX#
+message LaneLoc {
+  // Just use LaneLocStatus_Inside_Road and LaneLocStatus_Outside_Road now
+  enum LaneLocStatus {
+    LaneLocStatus_Inside_Road = 0;
+    LaneLocStatus_Outside_Road = 1;
+    LaneLocStatus_Outside_Road_LE = 2;
+    LaneLocStatus_Outside_Road_RI = 3;
+  }
+  optional LaneLocStatus lane_loc_status = 1;
+  optional uint64 curr_link_id = 2;   // Actually equals to lane_id in map engine, which is corresponding to map data and map engine both.
+  optional uint64 curr_lane_id = 3;   // Actually equals to sequence_id in map engine, representing the number of current lane, the right-most lane is 0
+  optional int32  hdmap_version = 4;  // Version of HDmap
+  optional float  lane_lat_offset = 5;   // Lateral distance to central line of current  lane
+  optional float  link_offset = 6;       // [0, 1] indicates the offset along current link
+}
+
+message AbnormalState {
+  optional uint64 index = 1;
+  optional int32 abnormal_code = 2;
+  optional double duration = 3;
+  optional double start_time = 4;
+  optional uint64 map_road_info = 5;
+  optional string extra_info = 6;
+}
+
+message Measurement {
+  optional uint64 type = 1;
+  optional int32 status = 2;
+  optional double time = 3;
+  repeated double measure = 4;
+  optional string extra_info = 5;
+}
+
+// Global localization message with lane level and precise localization information
+message GlobalLocalization {
+  optional double timestamp = 1; // Globally defined time. [second]
+
+  enum Status {
+    UNINITIALIZED = 0;       // Not initialized yet
+    INITIALIZING = 1;        // Initializing in progress
+    NOT_CONVERGED = 2;       // Not converged yet
+    CONVERGED = 3;           // Converged now, the localization module works
+    PARTIAL_CONSTRAINED = 4; // Localization module isn't fully constrained, such as in tunnel.
+    INVALID = 5;             // Global localization not available.
+    SENSOR_ERROR = 6;        // Sensor failure, such as abnormal value.
+  }
+  optional Status status = 2;
+
+  enum Mode {
+    LOCAL_TRACKING = 0;      // None of GNSS or HDMAP is available, estimate state by tracking.
+    GNSS_ONLY = 1;           // Only GNSS is available for global localization.
+    HDMAP_ONLY = 2;          // Only HDMAP is available for global localization.
+    GNSS_HDMAP_BOTH = 3;     // Both GNSS and HDMAP are available for global localization.
+    GNSS_LIDAR = 4;          // Both GNSS and Lidar are used for AVP global localization. ​
+    GNSS_SVC = 5;            // Both GNSS and SVC are used for AVP global localization
+    GNSS_LIDAR_SVC_ALL = 6;  // All in one mode for AVP localization
+    LIDAR_ONLY = 7;          // Only Lidar is used for global localization (underground)
+    LIDAR_SVC = 8;           // Both Lidar and SVC are used for global localization
+  }
+  optional Mode mode = 3;
+
+  // Lane information
+  optional LaneLoc lane_loc = 4;
+
+  // Attitude/Position/Velocity and uncertainty under wgs84(position only) and local ENU.
+  optional LocEulerAngle euler_angle = 5; // 3 DoFs attitude under local ENU frame, expressed using Euler angle. [radian]
+  optional LocVector3 wgs84_position = 6; // Longitude [degree], latitude [degree], and altitude [m].
+  optional LocVector3 velocity = 7;       // 3 DoFs Velocity under local ENU frame. [m/s]
+  optional LocQuaternion quaternion = 8;  // 3 DoFs attitude under local ENU frame, expressed using quaternion.
+  optional string world_frame = 9;        // "GCJ-02" by default.
+
+  // Ego motion of the car
+  optional LocVector3 linear_acc = 10;  // 3 DoFs acceleration in the vehicle frame. [m/s^2]
+  optional LocVector3 angular_vel = 11; // 3 DoFs angular velocity in the vehicle frame. [radian/s]
+
+  // Uncertainty of localization
+  repeated double attitude_cov = 12; // 3 x 3 row majored covariance matrix of attitude. [radian^2]
+  repeated double position_cov = 13; // 3 x 3 row majored covariance matrix of position. [m^2]
+  repeated double velocity_cov = 14; // 3 x 3 row majored covariance matrix of velocity. [m^2/s^2]
+
+  optional float confidence = 15; // Reserved systematic confidence value in [0.0, 1.0].
+  optional string status_message = 16;
+
+  // Global position under a cartesian coordinates system defined at the first frame.
+  optional LocVector3 cartesian_position = 17;
+  optional uint64 timestamp_ptp_ns = 18; // Globally defined ptp time. [nano second]
+
+  // Confidence in different dimension in vehicle frame, recorded as [poistion_x, position_y, heading, ...]
+  // Valid range [0.0, 1.0]
+  repeated float dim_confidence = 19;
+
+  // Parameters estimated online, such as wheel_scale
+  repeated double online_parameters = 20;
+
+  // Debug infomation for confidence estimation.
+  optional float  learning_confidence = 21;
+  optional uint32 conf_reject_reason = 22;
+
+  // Map zone information
+  enum MapZoneInfo {
+    General = 0;
+    ServiceSationPilot = 1;  // Charging station pilot
+    HDNavigation = 2;        // Charging pile navigation
+    HDPilot = 3;             // Charging pile pilot
+    P2PPilot = 4;            // Point to point pilot
+  }
+  optional MapZoneInfo map_zone_info = 23;
+
+  // Auxiliary Map Matching Info
+  message AuxiliaryParkingInfo {
+    optional int32 is_in_map_area = 1;      // Whether in low-speed localization area
+    optional int32 lidar_mm_status = 2;     // Lidar map matching status
+    optional int32 svc_mm_status = 3;       // SVC map matching status
+    optional string station_id = 4; // device id of power swap station (PS) or charging station (CS), example PS-NIO-e087aa69-3e64310e
+  }
+  optional AuxiliaryParkingInfo auxiliary_parking_info = 24;
+
+  optional MapTopoLoc map_topo_loc = 25;
+
+  optional GlobalRoutesInfo global_routes_info = 26;
+
+  repeated int64 input_status  = 27; // Status of input data. e.g. sensor, map.
+  repeated int64 module_status = 28; // Status of inner sub-modules.
+
+  optional string version = 29;      // version of localization method.
+
+  optional LMMTransparentInfo lmm_transparent_info = 30;
+
+  optional string vid = 10000; // vid of source vehicle
+
+  repeated AbnormalState abnormal_states = 20000;
+  repeated Measurement measurements = 20001;
+
+  optional SensorTSHeader sensor_original_ts = 536870906;   // sensor original ts
+  optional uint64 publish_ptp_ts = 536870907;   // publish ptp timestamp, uint in nanosec
+  optional string publisher_id = 536870909;     // uuid of the publisher
+  optional uint64 counter = 536870910;          // message counter
+  optional uint64 publish_ts = 536870911;       // publish utc timestamp, unit : nanosecond
+}

@@ -1,0 +1,56 @@
+syntax = "proto2";
+
+package nio.ad.messages;
+
+import "common/pnc/geometry.proto";
+
+message GNSS {
+  // Vehicle reference point (VRP) is at center of rear axle.
+
+  // When this message was published. In nanoseconds.
+  optional uint64 time_pub = 1;
+
+  // When the measurements were made. In nanoseconds.
+  optional uint64 time_meas = 2;
+
+  // GPS time of the measurements. In nanoseconds.
+  optional uint64 time_gps = 3;
+
+  // Position of antenna phase center.
+  optional double longitude_deg = 4;
+  optional double latitude_deg = 5;
+  optional float height = 6;  // meters above the WGS-84 ellipsoid
+
+  // Standard deviation is in meters.
+  optional float east_std = 7;
+  optional float north_std = 8;
+  optional float up_std = 9;
+
+  optional float differential_age = 10;  // in seconds
+  optional float solution_age = 11;      // in seconds
+
+  optional uint32 num_sats_tracked = 12;
+  optional uint32 num_sats_in_solution = 13;
+
+  optional bool solution_computed = 14;
+
+  enum GNSSType {
+    TYPE_INVALID = 0;
+    TYPE_PROPAGATED =
+        1;         // Propagated by a Kalman filter without new observations
+    TYPE_SPS = 2;  // Standard Positioning Service (SPS) without any correction
+    TYPE_PSRDIFF =
+        3;  // Pseudorange differential solution, including WAAS/SBAS solution
+    TYPE_PPP = 4;          // Precise Point Positioning (PPP) solution
+    TYPE_RTK_FLOAT = 5;    // Real Time Kinematic (RTK) float solution
+    TYPE_RTK_INTEGER = 6;  // RTK integer solution
+  }
+  optional GNSSType type = 15;
+
+  // the following fields are specifically used by localization module
+  optional Vector3d roll_pitch_yaw = 16;  // in rad
+  optional Vector3d velocity_enu = 17;    // in m/s
+
+  optional Vector3d roll_pitch_yaw_std = 18;  // in rad
+  optional Vector3d velocity_enu_std = 19;    // in m/s
+}

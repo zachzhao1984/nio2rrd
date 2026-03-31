@@ -1,0 +1,7 @@
+syntax = "proto2";
+package nio.ad.messages;
+
+message SLPoint {
+  optional double s = 1;
+  optional double l = 2;
+}
