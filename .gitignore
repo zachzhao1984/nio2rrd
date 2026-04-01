@@ -8,6 +8,7 @@ wheels/
 *.zip
 *.mcap
 *.rrd
+*.whl
 
 # Virtual environments
 .venv
