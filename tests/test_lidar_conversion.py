@@ -4,8 +4,8 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
-from unittest import mock
 
+import numpy as np
 import nio_to_rerun as mod
 from common.perception.lidar_cluster_output_pb2 import LidarClusterObjects
 from common.perception.perception_objects_pb2 import ObjectsDetection
@@ -20,35 +20,42 @@ def _write_zip(entries: dict[str, bytes]) -> tuple[str, tempfile.TemporaryDirect
     return str(zip_path), temp_dir
 
 
-def _build_falcon_packet(
-    *,
-    frame_idx: int,
-    timestamp_us: int,
-    h_angle_raw: int,
-    v_angle_raw: int,
-    radius_raw: int,
-    reflectance: int,
-) -> bytes:
-    block_size = mod.FALCON_BLOCK_HEADER_SIZE + 4
-    packet_size = mod.FALCON_PACKET_HEADER_SIZE + block_size
+def _build_ascii_pcd(points: list[list[float]]) -> bytes:
+    lines = [
+        "# .PCD v0.7",
+        "VERSION 0.7",
+        "FIELDS x y z intensity",
+        "SIZE 4 4 4 4",
+        "TYPE F F F F",
+        "COUNT 1 1 1 1",
+        f"WIDTH {len(points)}",
+        "HEIGHT 1",
+        "VIEWPOINT 0 0 0 1 0 0 0",
+        f"POINTS {len(points)}",
+        "DATA ascii",
+    ]
+    lines.extend(" ".join(str(value) for value in point) for point in points)
+    return ("\n".join(lines) + "\n").encode("utf-8")
 
-    common_header = bytearray(mod.FALCON_COMMON_HEADER_SIZE)
-    common_header[0:2] = mod.FALCON_MAGIC.to_bytes(2, "little")
-    common_header[10:14] = packet_size.to_bytes(4, "little")
-    common_header[18:26] = timestamp_us.to_bytes(8, "little")
 
-    packet_info = bytearray(mod.FALCON_PACKET_INFO_SIZE)
-    packet_info[0:8] = frame_idx.to_bytes(8, "little")
-    packed_type_and_count = (1 << 8) | 1
-    packet_info[12:16] = packed_type_and_count.to_bytes(4, "little")
-    packet_info[16:18] = block_size.to_bytes(2, "little")
-
-    block_header = bytearray(mod.FALCON_BLOCK_HEADER_SIZE)
-    block_header[0:2] = h_angle_raw.to_bytes(2, "little")
-    block_header[2:4] = v_angle_raw.to_bytes(2, "little")
-
-    point = (radius_raw | (reflectance << 17)).to_bytes(4, "little")
-    return bytes(common_header + packet_info + block_header + point)
+def _build_binary_pcd(points: np.ndarray) -> bytes:
+    header = "\n".join(
+        [
+            "# .PCD v0.7",
+            "VERSION 0.7",
+            "FIELDS x y z intensity",
+            "SIZE 4 4 4 4",
+            "TYPE F F F F",
+            "COUNT 1 1 1 1",
+            f"WIDTH {len(points)}",
+            "HEIGHT 1",
+            "VIEWPOINT 0 0 0 1 0 0 0",
+            f"POINTS {len(points)}",
+            "DATA binary",
+            "",
+        ]
+    ).encode("utf-8")
+    return header + points.astype(np.float32).tobytes()
 
 
 class LidarConversionTests(unittest.TestCase):
@@ -131,90 +138,55 @@ class LidarConversionTests(unittest.TestCase):
         self.assertEqual(messages[0][0], 555)
         self.assertEqual(messages[0][1], payload)
 
-    def test_read_falcon_pointcloud_groups_packets_by_frame_index(self) -> None:
-        uuid = "test-uuid"
-        packet_a = _build_falcon_packet(
-            frame_idx=7,
-            timestamp_us=1_000_000,
-            h_angle_raw=32768,
-            v_angle_raw=32768,
-            radius_raw=400,
-            reflectance=64,
-        )
-        packet_b = _build_falcon_packet(
-            frame_idx=7,
-            timestamp_us=1_000_100,
-            h_angle_raw=49152,
-            v_angle_raw=32768,
-            radius_raw=600,
-            reflectance=128,
-        )
-
-        zip_path, temp_dir = _write_zip(
-            {
-                f"{uuid}/meta.json": b"{}",
-                f"{uuid}/da_data_meta.json": json.dumps({"topics": {}}).encode(),
-                f"{uuid}/data/lidar/sample.dat": packet_a + packet_b,
-            }
-        )
-        self.addCleanup(temp_dir.cleanup)
-
-        extractor = mod.NIODataExtractor(zip_path)
-        self.addCleanup(extractor.close)
-
-        frames = extractor.read_falcon_pointcloud(max_frames=5)
-
-        self.assertEqual(len(frames), 1)
-        timestamp_ns, points = frames[0]
-        self.assertEqual(timestamp_ns, 1_000_000_000)
-        self.assertEqual(points.shape, (2, 4))
-
-        self.assertAlmostEqual(points[0, 0], 2.0, places=5)
-        self.assertAlmostEqual(points[0, 1], 0.0, places=5)
-        self.assertAlmostEqual(points[0, 2], 0.0, places=5)
-        self.assertAlmostEqual(points[0, 3], 64 / 255.0, places=5)
-
-        self.assertAlmostEqual(points[1, 0], 0.0, places=5)
-        self.assertAlmostEqual(points[1, 1], 3.0, places=5)
-        self.assertAlmostEqual(points[1, 2], 0.0, places=5)
-        self.assertAlmostEqual(points[1, 3], 128 / 255.0, places=5)
-
-    def test_read_falcon_pointcloud_uses_sdk_reader_when_available(self) -> None:
-        uuid = "test-uuid"
-
-        class FakeFalconReader:
-            def __init__(self, path: str) -> None:
-                self.path = path
-                self._frames = [
-                    (
-                        [
-                            [1.0, 2.0, 3.0, 10.0],
-                            [4.0, 5.0, 6.0, 20.0],
-                        ],
-                        {
-                            "frame_starttime": 1.25,
-                            "scanner_direction": 2,
-                        },
-                    )
+    def test_parse_pcd_pointcloud_reads_xyz_and_intensity(self) -> None:
+        points = mod._parse_pcd_pointcloud(
+            _build_ascii_pcd(
+                [
+                    [1.0, 2.0, 3.0, 10.0],
+                    [4.0, 5.0, 6.0, 20.0],
                 ]
-                self.fillrow_mode = False
+            )
+        )
 
-            def set_fillrow_mode(self) -> None:
-                self.fillrow_mode = True
+        self.assertIsNotNone(points)
+        np.testing.assert_allclose(
+            points,
+            np.array(
+                [
+                    [1.0, 2.0, 3.0, 10.0],
+                    [4.0, 5.0, 6.0, 20.0],
+                ],
+                dtype=np.float32,
+            ),
+        )
 
-            def get_frame_with_info(self):
-                if self._frames:
-                    return self._frames.pop(0)
-                return None
+    def test_parse_pcd_pointcloud_reads_binary_payload(self) -> None:
+        expected = np.array(
+            [
+                [7.0, 8.0, 9.0, 30.0],
+                [10.0, 11.0, 12.0, 40.0],
+            ],
+            dtype=np.float32,
+        )
 
-        def fake_get_falcon_data_13n(points):
-            return [[0.0] * 13 for _ in points]
+        points = mod._parse_pcd_pointcloud(_build_binary_pcd(expected))
+
+        self.assertIsNotNone(points)
+        np.testing.assert_allclose(points, expected)
+
+    def test_read_lidar_pointcloud_sorts_pcd_by_filename_timestamp(self) -> None:
+        uuid = "test-uuid"
 
         zip_path, temp_dir = _write_zip(
             {
                 f"{uuid}/meta.json": b"{}",
                 f"{uuid}/da_data_meta.json": json.dumps({"topics": {}}).encode(),
-                f"{uuid}/data/lidar/sample.dat": b"not-a-raw-falcon-packet",
+                f"{uuid}/data/lidar/1759986615000000.pcd": _build_ascii_pcd(
+                    [[4.0, 5.0, 6.0, 200.0]]
+                ),
+                f"{uuid}/data/lidar/1759986614000000.pcd": _build_ascii_pcd(
+                    [[1.0, 2.0, 3.0, 100.0]]
+                ),
             }
         )
         self.addCleanup(temp_dir.cleanup)
@@ -222,17 +194,31 @@ class LidarConversionTests(unittest.TestCase):
         extractor = mod.NIODataExtractor(zip_path)
         self.addCleanup(extractor.close)
 
-        with mock.patch.object(
-            mod,
-            "_load_falcon_sdk",
-            return_value=(FakeFalconReader, fake_get_falcon_data_13n, None),
-        ):
-            frames = extractor.read_falcon_pointcloud(max_frames=5)
+        frames = extractor.read_lidar_pointcloud(max_frames=5)
 
-        self.assertEqual(len(frames), 1)
-        timestamp_ns, points = frames[0]
-        self.assertEqual(timestamp_ns, 1_250_000_000)
-        self.assertEqual(points.tolist(), [[1.0, 2.0, 3.0, 10.0], [4.0, 5.0, 6.0, 20.0]])
+        self.assertEqual(len(frames), 2)
+        self.assertEqual(frames[0][0], 1_759_986_614_000_000_000)
+        self.assertEqual(frames[1][0], 1_759_986_615_000_000_000)
+        np.testing.assert_allclose(
+            frames[0][1],
+            np.array([[1.0, 2.0, 3.0, 100.0]], dtype=np.float32),
+        )
+        np.testing.assert_allclose(
+            frames[1][1],
+            np.array([[4.0, 5.0, 6.0, 200.0]], dtype=np.float32),
+        )
+
+    def test_camera_frame_timestamp_prefers_utc_column(self) -> None:
+        frame = mod.CameraFrame(
+            ptp_timestamp=1759987733455459840,
+            utc_timestamp=1759986613789432000,
+            frame_type="I",
+        )
+
+        self.assertEqual(mod._camera_frame_timestamp_ns(frame, fallback=123), 1759986613789432000)
+
+        frame.utc_timestamp = 0
+        self.assertEqual(mod._camera_frame_timestamp_ns(frame, fallback=123), 1759987733455459840)
 
     def test_lidar_cluster_timestamp_prefers_proto_fields(self) -> None:
         clusters = LidarClusterObjects()

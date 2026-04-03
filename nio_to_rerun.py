@@ -6,7 +6,8 @@ Converts NIO SIRIUS (NT2) autonomous driving data packets to Rerun's .rrd format
 
 Supported data types:
 - Camera: H.265 video → Rerun Image
-- Lidar Cluster Objects: Protobuf → Rerun Boxes + EntityNames
+- Lidar PointCloud: PCD → Rerun Points3D
+- Lidar Cluster Objects: Protobuf → Rerun Boxes
 - Perception Objects: Protobuf → Rerun Boxes + Velocities
 
 Usage:
@@ -17,7 +18,7 @@ Dependencies:
 """
 
 import argparse
-import importlib
+import io
 import json
 import math
 import os
@@ -38,10 +39,7 @@ import rerun as rr
 PROTO_DIR = Path(__file__).parent / "protos"
 sys.path.insert(0, str(PROTO_DIR))
 
-from common.perception.lidar_cluster_output_pb2 import (
-    LidarClusterObjects,
-    LidarSemanticClass,
-)
+from common.perception.lidar_cluster_output_pb2 import LidarClusterObjects
 from common.perception.perception_objects_pb2 import (
     DynamicObj,
     DynamicObjects,
@@ -59,109 +57,149 @@ class CameraFrame:
     frame_type: str
 
 
-FALCON_MAGIC = 0x4451
-FALCON_COMMON_HEADER_SIZE = 26
-FALCON_PACKET_INFO_SIZE = 28
-FALCON_PACKET_HEADER_SIZE = FALCON_COMMON_HEADER_SIZE + FALCON_PACKET_INFO_SIZE
-FALCON_BLOCK_HEADER_SIZE = 17
-_FALCON_SDK_CACHE: Optional[tuple[object | None, object | None, str | None]] = None
+PCD_SCALAR_FIELDS = ("intensity", "reflectance", "i")
+RERUN_TIMELINE = "time"
+PCD_BINARY_DTYPES = {
+    ("F", 4): np.dtype("<f4"),
+    ("F", 8): np.dtype("<f8"),
+    ("I", 1): np.dtype("<i1"),
+    ("I", 2): np.dtype("<i2"),
+    ("I", 4): np.dtype("<i4"),
+    ("I", 8): np.dtype("<i8"),
+    ("U", 1): np.dtype("<u1"),
+    ("U", 2): np.dtype("<u2"),
+    ("U", 4): np.dtype("<u4"),
+    ("U", 8): np.dtype("<u8"),
+}
 
 
-def _falcon_angle_to_radians(raw_value: int) -> float:
-    """Convert Falcon uint16 angle to radians in [-pi, pi)."""
-    return (raw_value / 32768.0 - 1.0) * math.pi
-
-
-def _extract_falcon_type_and_item_count(packet_info: bytes) -> tuple[int, int]:
-    """Decode packed Falcon packet type and block count."""
-    packed_value = struct.unpack_from("<I", packet_info, 12)[0]
-    data_type = packed_value & 0xFF
-    item_count = packed_value >> 8
-    return data_type, item_count
-
-
-def _load_falcon_sdk() -> tuple[object | None, object | None, str | None]:
-    """Load FalconReader from datafilter-sdk when available."""
-    global _FALCON_SDK_CACHE
-    if _FALCON_SDK_CACHE is not None:
-        return _FALCON_SDK_CACHE
-
-    extra_pythonpath = os.environ.get("NIO_FALCON_SDK_PYTHONPATH", "")
-    for path in extra_pythonpath.split(os.pathsep):
-        path = path.strip()
-        if path and path not in sys.path:
-            sys.path.insert(0, path)
-
+def _extract_lidar_pcd_timestamp_ns(path: str) -> int:
+    """Extract timestamp from a lidar PCD filename and normalize to ns."""
     try:
-        rawdatareader = importlib.import_module("datafilter.sdk.rawdatareader")
-    except Exception as exc:  # pragma: no cover - exercised via caller behavior
-        _FALCON_SDK_CACHE = (None, None, f"{type(exc).__name__}: {exc}")
-        return _FALCON_SDK_CACHE
+        timestamp_value = int(Path(path).stem)
+    except ValueError:
+        return 0
 
-    falcon_reader = getattr(rawdatareader, "FalconReader", None)
-    get_falcon_data_13n = getattr(rawdatareader, "get_falcon_data_13n", None)
-    if falcon_reader is None:
-        _FALCON_SDK_CACHE = (
-            None,
-            None,
-            "AttributeError: datafilter.sdk.rawdatareader.FalconReader missing",
-        )
-        return _FALCON_SDK_CACHE
-
-    _FALCON_SDK_CACHE = (falcon_reader, get_falcon_data_13n, None)
-    return _FALCON_SDK_CACHE
+    if timestamp_value >= 10**18:
+        return timestamp_value
+    if timestamp_value >= 10**15:
+        return timestamp_value * 1_000
+    if timestamp_value >= 10**12:
+        return timestamp_value * 1_000_000
+    return timestamp_value * 1_000_000_000
 
 
-def _downsample_nt3_falcon_points(
-    scanner_direction: int, falcon_pcd_13n: np.ndarray, falcon_pcd: np.ndarray
-) -> np.ndarray:
-    """Match adviz_stream's Falcon downsampling for NT3 lidar."""
-    if len(falcon_pcd_13n) != len(falcon_pcd):
-        return falcon_pcd
+def _parse_pcd_pointcloud(data: bytes) -> Optional[np.ndarray]:
+    """Parse ASCII or binary PCD payload into Nx4 float32 [x, y, z, scalar]."""
+    stream = io.BytesIO(data)
+    header: dict[str, list[str]] = {}
 
-    multireturn = falcon_pcd_13n[:, 8].astype(int)
-    scan_id = falcon_pcd_13n[:, 11].astype(int)
-    scan_idx = falcon_pcd_13n[:, 12].astype(int)
-    keep_indices: list[int] = []
+    while True:
+        line = stream.readline()
+        if not line:
+            return None
 
-    for i in range(len(falcon_pcd)):
-        if multireturn[i]:
-            continue
-        if scanner_direction == 0:
-            in_dense_sector = 7 <= scan_id[i] <= 29 and (
-                scan_idx[i] <= 375 or scan_idx[i] >= 775
-            )
-        elif scanner_direction == 1:
-            in_dense_sector = 10 <= scan_id[i] <= 32 and (
-                scan_idx[i] <= 375 or scan_idx[i] >= 775
-            )
-        else:
-            in_dense_sector = False
-
-        if in_dense_sector:
-            if scan_id[i] % 2 != 0 and scan_idx[i] % 2 != 0:
-                keep_indices.append(i)
+        text = line.decode("utf-8", "replace").strip()
+        if not text or text.startswith("#"):
             continue
 
-        keep_indices.append(i)
+        key, *values = text.split()
+        header[key.upper()] = values
+        if key.upper() == "DATA":
+            break
 
-    if not keep_indices:
-        return falcon_pcd
-    return falcon_pcd[keep_indices]
-
-
-def _coerce_falcon_points(points: object) -> Optional[np.ndarray]:
-    """Convert FalconReader output to Nx4 float32 point cloud."""
-    points_array = np.asarray(points)
-    if points_array.ndim != 2 or points_array.shape[1] < 3:
+    fields = header.get("FIELDS", [])
+    if not {"x", "y", "z"}.issubset(fields):
         return None
 
-    points_array = points_array.astype(np.float32, copy=False)
-    xyz = points_array[:, :3]
-    if points_array.shape[1] >= 4:
-        scalar = points_array[:, 3:4]
+    counts = [int(v) for v in header.get("COUNT", ["1"] * len(fields))]
+    if len(counts) != len(fields):
+        return None
+
+    column_offsets: dict[str, int] = {}
+    total_columns = 0
+    for field_name, field_count in zip(fields, counts):
+        column_offsets[field_name] = total_columns
+        total_columns += field_count
+
+    scalar_field = next(
+        (field_name for field_name in PCD_SCALAR_FIELDS if field_name in column_offsets),
+        None,
+    )
+    data_mode = header["DATA"][0].lower() if header.get("DATA") else ""
+    point_count = int(header.get("POINTS", ["0"])[0])
+    payload = stream.read()
+
+    if data_mode == "ascii":
+        if point_count == 0 or not payload.strip():
+            points_data = np.empty((0, total_columns), dtype=np.float32)
+        else:
+            try:
+                points_data = np.loadtxt(io.BytesIO(payload), dtype=np.float32)
+            except ValueError:
+                return None
+            points_data = np.atleast_2d(points_data)
+
+        if points_data.ndim != 2 or points_data.shape[1] < total_columns:
+            return None
+
+        xyz = np.column_stack(
+            [
+                points_data[:, column_offsets["x"]],
+                points_data[:, column_offsets["y"]],
+                points_data[:, column_offsets["z"]],
+            ]
+        ).astype(np.float32, copy=False)
+        if scalar_field:
+            scalar = points_data[:, column_offsets[scalar_field]].reshape(-1, 1)
+        else:
+            scalar = np.ones((xyz.shape[0], 1), dtype=np.float32)
+        return np.concatenate([xyz, scalar.astype(np.float32, copy=False)], axis=1)
+
+    if data_mode != "binary":
+        return None
+
+    sizes = [int(v) for v in header.get("SIZE", [])]
+    types = [v.upper() for v in header.get("TYPE", [])]
+    if len(sizes) != len(fields) or len(types) != len(fields):
+        return None
+
+    dtype_fields = []
+    for field_name, field_size, field_type, field_count in zip(
+        fields, sizes, types, counts
+    ):
+        dtype = PCD_BINARY_DTYPES.get((field_type, field_size))
+        if dtype is None:
+            return None
+        if field_count == 1:
+            dtype_fields.append((field_name, dtype))
+        else:
+            dtype_fields.append((field_name, dtype, (field_count,)))
+
+    point_dtype = np.dtype(dtype_fields)
+    if point_count <= 0:
+        point_count = len(payload) // point_dtype.itemsize
+    if len(payload) < point_count * point_dtype.itemsize:
+        return None
+
+    structured_points = np.frombuffer(
+        payload[: point_count * point_dtype.itemsize],
+        dtype=point_dtype,
+        count=point_count,
+    )
+    xyz = np.column_stack(
+        [
+            np.asarray(structured_points["x"], dtype=np.float32).reshape(point_count, -1)[:, 0],
+            np.asarray(structured_points["y"], dtype=np.float32).reshape(point_count, -1)[:, 0],
+            np.asarray(structured_points["z"], dtype=np.float32).reshape(point_count, -1)[:, 0],
+        ]
+    )
+    if scalar_field:
+        scalar = np.asarray(structured_points[scalar_field], dtype=np.float32).reshape(
+            point_count, -1
+        )[:, :1]
     else:
-        scalar = np.ones((points_array.shape[0], 1), dtype=np.float32)
+        scalar = np.ones((point_count, 1), dtype=np.float32)
     return np.concatenate([xyz, scalar], axis=1)
 
 
@@ -232,6 +270,15 @@ def _message_timestamp_ns(message: object, fallback: int = 0) -> int:
         except ValueError:
             continue
 
+    return fallback
+
+
+def _camera_frame_timestamp_ns(frame: CameraFrame, fallback: int = 0) -> int:
+    """Prefer the camera timestamp column aligned with lidar/perception data."""
+    if frame.utc_timestamp > 0:
+        return frame.utc_timestamp
+    if frame.ptp_timestamp > 0:
+        return frame.ptp_timestamp
     return fallback
 
 
@@ -473,252 +520,60 @@ class NIODataExtractor:
         messages.sort(key=lambda item: item[0])
         return messages
 
-    def read_falcon_pointcloud(
+    def read_lidar_pointcloud(
         self, max_frames: int = 100
     ) -> list[tuple[int, np.ndarray]]:
-        """Read Falcon LiDAR point cloud data from .dat file.
-
-        Falcon format (from Seyond official specification):
-        - InnoCommonHeader: 26 bytes
-        - InnoDataPacket Information: 28 bytes
-        - InnoBlock[]: 17 byte header + 4*N bytes per block
-          - InnoChannelPoint: 4 bytes
-            (radius=17bit, refl=8bit, elongation=4bit,
-            is_2nd_return=1bit, type=2bit)
-        """
+        """Read LiDAR PCD files from zip and use filename timestamps."""
         lidar_dir = f"{self.uuid}/data/lidar/"
         lidar_files = [
             n
             for n in self.zip_file.namelist()
-            if n.startswith(lidar_dir) and n.endswith(".dat")
+            if n.startswith(lidar_dir)
+            and n.endswith(".pcd")
+            and "/._" not in n
+            and not Path(n).name.startswith(".")
         ]
-
         if not lidar_files:
             return []
 
-        FalconReader, _, sdk_error = _load_falcon_sdk()
-        if FalconReader is None and sdk_error:
-            print(
-                "  FalconReader unavailable "
-                f"({sdk_error}); falling back to built-in parser"
-            )
-
-        sdk_frames = self._read_falcon_pointcloud_with_sdk(lidar_files, max_frames)
-        if sdk_frames:
-            return sdk_frames
-
-        frames_by_index: dict[int, list[list[float]]] = {}
-        frame_timestamps_ns: dict[int, int] = {}
-        spherical_block_size = FALCON_BLOCK_HEADER_SIZE + 4
-
-        for lidar_file in sorted(lidar_files):
-            raw_data = self.zip_file.read(lidar_file)
-            offset = 0
-
-            while offset + FALCON_PACKET_HEADER_SIZE <= len(raw_data):
-                packet_start = offset
-                magic = struct.unpack_from("<H", raw_data, packet_start)[0]
-                if magic != FALCON_MAGIC:
-                    offset += 1
-                    continue
-
-                packet_size = struct.unpack_from("<I", raw_data, packet_start + 10)[0]
-                packet_end = packet_start + packet_size
-                if (
-                    packet_size < FALCON_PACKET_HEADER_SIZE
-                    or packet_end > len(raw_data)
-                ):
-                    offset += 1
-                    continue
-
-                ts_start_us = struct.unpack_from("<Q", raw_data, packet_start + 18)[0]
-                packet_info_offset = packet_start + FALCON_COMMON_HEADER_SIZE
-                packet_info = raw_data[
-                    packet_info_offset : packet_info_offset + FALCON_PACKET_INFO_SIZE
-                ]
-
-                frame_idx = struct.unpack_from("<Q", packet_info, 0)[0]
-                data_type, block_count = _extract_falcon_type_and_item_count(packet_info)
-                block_size = struct.unpack_from("<H", packet_info, 16)[0]
-
-                if data_type != 1 or block_count == 0:
-                    offset = packet_end
-                    continue
-
-                payload_offset = packet_start + FALCON_PACKET_HEADER_SIZE
-                remaining_bytes = packet_end - payload_offset
-                if block_size == 0 and remaining_bytes == block_count * spherical_block_size:
-                    block_size = spherical_block_size
-
-                if block_size != spherical_block_size:
-                    offset = packet_end
-                    continue
-                if remaining_bytes < block_count * block_size:
-                    offset = packet_end
-                    continue
-
-                frame_points = frames_by_index.setdefault(frame_idx, [])
-                timestamp_ns = ts_start_us * 1000
-                previous_timestamp_ns = frame_timestamps_ns.get(frame_idx)
-                if previous_timestamp_ns is None:
-                    frame_timestamps_ns[frame_idx] = timestamp_ns
-                else:
-                    frame_timestamps_ns[frame_idx] = min(
-                        previous_timestamp_ns, timestamp_ns
-                    )
-
-                block_offset = payload_offset
-                for _ in range(block_count):
-                    if block_offset + block_size > packet_end:
-                        break
-
-                    block_header = raw_data[
-                        block_offset : block_offset + FALCON_BLOCK_HEADER_SIZE
-                    ]
-                    h_angle_raw, v_angle_raw = struct.unpack_from("<HH", block_header, 0)
-                    h_angle = _falcon_angle_to_radians(h_angle_raw)
-                    v_angle = _falcon_angle_to_radians(v_angle_raw)
-                    cos_v = math.cos(v_angle)
-                    sin_v = math.sin(v_angle)
-                    cos_h = math.cos(h_angle)
-                    sin_h = math.sin(h_angle)
-
-                    point_data = struct.unpack_from(
-                        "<I", raw_data, block_offset + FALCON_BLOCK_HEADER_SIZE
-                    )[0]
-                    radius_raw = point_data & 0x1FFFF
-                    reflectance = (point_data >> 17) & 0xFF
-                    radius_m = radius_raw / 200.0
-
-                    if not 0.1 < radius_m < 655.35:
-                        block_offset += block_size
-                        continue
-
-                    x = radius_m * cos_v * cos_h
-                    y = radius_m * cos_v * sin_h
-                    z = radius_m * sin_v
-                    frame_points.append([x, y, z, reflectance / 255.0])
-
-                    block_offset += block_size
-
-                offset = packet_end
-
-        if not frames_by_index:
-            return []
-
         frames = []
-        for frame_idx in sorted(frames_by_index):
-            frame_points = frames_by_index[frame_idx]
-            if not frame_points:
+        lidar_files.sort(key=_extract_lidar_pcd_timestamp_ns)
+        for lidar_file in lidar_files:
+            timestamp_ns = _extract_lidar_pcd_timestamp_ns(lidar_file)
+            if timestamp_ns <= 0:
+                print(f"  Skipping lidar PCD with invalid timestamp: {Path(lidar_file).name}")
                 continue
 
-            frames.append(
-                (
-                    frame_timestamps_ns[frame_idx],
-                    np.array(frame_points, dtype=np.float32),
-                )
-            )
+            try:
+                points = _parse_pcd_pointcloud(self.zip_file.read(lidar_file))
+            except KeyError:
+                continue
 
+            if points is None:
+                print(f"  Skipping unreadable lidar PCD: {Path(lidar_file).name}")
+                continue
+
+            frames.append((timestamp_ns, points))
             if len(frames) >= max_frames:
                 break
 
         return frames
 
-    def _read_falcon_pointcloud_with_sdk(
-        self, lidar_files: list[str], max_frames: int
+    def read_falcon_pointcloud(
+        self, max_frames: int = 100
     ) -> list[tuple[int, np.ndarray]]:
-        """Use datafilter-sdk's FalconReader when available."""
-        FalconReader, get_falcon_data_13n, _ = _load_falcon_sdk()
-        if FalconReader is None:
-            return []
-
-        frames: list[tuple[int, np.ndarray]] = []
-        for lidar_file in sorted(lidar_files):
-            with tempfile.NamedTemporaryFile(suffix=".dat", delete=False) as temp_file:
-                temp_file.write(self.zip_file.read(lidar_file))
-                temp_path = temp_file.name
-
-            reader = None
-            try:
-                reader = FalconReader(temp_path)
-                if hasattr(reader, "set_fillrow_mode"):
-                    try:
-                        reader.set_fillrow_mode()
-                    except Exception:
-                        pass
-
-                frame_with_info = getattr(reader, "get_frame_with_info", None)
-                if callable(frame_with_info):
-                    while len(frames) < max_frames:
-                        frame = frame_with_info()
-                        if frame is None:
-                            break
-
-                        falcon_pcd, frameinfo = frame
-                        points = np.asarray(falcon_pcd)
-                        if (
-                            callable(get_falcon_data_13n)
-                            and points.ndim == 2
-                            and len(points) > 0
-                            and isinstance(frameinfo, dict)
-                            and "scanner_direction" in frameinfo
-                        ):
-                            try:
-                                falcon_pcd_13n = np.asarray(get_falcon_data_13n(points))
-                                points = _downsample_nt3_falcon_points(
-                                    int(frameinfo.get("scanner_direction", 0)),
-                                    falcon_pcd_13n,
-                                    points,
-                                )
-                            except Exception:
-                                points = np.asarray(falcon_pcd)
-
-                        normalized = _coerce_falcon_points(points)
-                        if normalized is None:
-                            continue
-
-                        timestamp_ns = int(frameinfo["frame_starttime"] * 1e9)
-                        frames.append((timestamp_ns, normalized))
-                else:
-                    while len(frames) < max_frames:
-                        frame = reader.get_next_frame()
-                        if frame is None:
-                            break
-
-                        _, frame_starttime, falcon_pcd = frame
-                        normalized = _coerce_falcon_points(falcon_pcd)
-                        if normalized is None:
-                            continue
-                        frames.append((int(frame_starttime * 1e9), normalized))
-            except Exception as exc:
-                print(
-                    f"  FalconReader failed for {Path(lidar_file).name}: "
-                    f"{type(exc).__name__}: {exc}"
-                )
-            finally:
-                if reader is not None and hasattr(reader, "close"):
-                    try:
-                        reader.close()
-                    except Exception:
-                        pass
-                try:
-                    os.unlink(temp_path)
-                except OSError:
-                    pass
-
-            if len(frames) >= max_frames:
-                break
-
-        frames.sort(key=lambda item: item[0])
-        return frames[:max_frames]
+        """Backward-compatible alias for the old LiDAR reader name."""
+        return self.read_lidar_pointcloud(max_frames=max_frames)
 
     def close(self):
         self.zip_file.close()
 
 
 def decode_video_to_frames(
-    video_data: bytes, max_frames: int = 100
-) -> list[tuple[float, np.ndarray]]:
+    video_data: bytes,
+    frame_metadata: Optional[list[CameraFrame]] = None,
+    max_frames: int = 100,
+) -> list[tuple[int, np.ndarray]]:
     """Decode H.264/H.265 video to frames using ffmpeg."""
     frames = []
 
@@ -765,8 +620,14 @@ def decode_video_to_frames(
             for i, png_file in enumerate(png_files[:max_frames]):
                 frame = cv2.imread(png_file)
                 if frame is not None:
-                    time_sec = i * 0.1  # ~10fps
-                    frames.append((time_sec, frame))
+                    fallback_timestamp_ns = i * 100_000_000
+                    if frame_metadata and i < len(frame_metadata):
+                        timestamp_ns = _camera_frame_timestamp_ns(
+                            frame_metadata[i], fallback=fallback_timestamp_ns
+                        )
+                    else:
+                        timestamp_ns = fallback_timestamp_ns
+                    frames.append((timestamp_ns, frame))
 
     try:
         os.unlink(video_path)
@@ -886,7 +747,11 @@ def convert_nio_to_rerun(
                 print("No data found")
                 continue
 
-            frames = decode_video_to_frames(h265_data, max_frames_per_camera)
+            frames = decode_video_to_frames(
+                h265_data,
+                frame_metadata=timestamps,
+                max_frames=max_frames_per_camera,
+            )
             print(f"Decoded {len(frames)} frames")
 
             # Get calibration data for this camera
@@ -896,10 +761,10 @@ def convert_nio_to_rerun(
             # Image path (separate from camera entity)
             image_path = f"{rerun_paths[0]}/image"
 
-            for time_sec, frame in frames:
+            for timestamp_ns, frame in frames:
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 height, width = frame_rgb.shape[:2]
-                rr.set_time("camera_time", timestamp=time_sec)
+                rr.set_time(RERUN_TIMELINE, timestamp=timestamp_ns / 1e9)
 
                 # Log image to separate path
                 rr.log(image_path, rr.Image(frame_rgb))
@@ -931,14 +796,16 @@ def convert_nio_to_rerun(
         print("\n[PROCESSING] Converting lidar...")
 
         # Try point cloud first
-        print("  Reading Falcon point cloud...")
-        pointcloud_frames = extractor.read_falcon_pointcloud()
+        print("  Reading PCD point cloud...")
+        pointcloud_frames = extractor.read_lidar_pointcloud(
+            max_frames=max_frames_per_camera
+        )
         print(f"  Found {len(pointcloud_frames)} point cloud frames")
 
         if pointcloud_frames:
-            for i, (timestamp_ns, points) in enumerate(pointcloud_frames[:20]):
+            for timestamp_ns, points in pointcloud_frames:
                 time_sec = timestamp_ns / 1e9
-                rr.set_time("lidar_time", timestamp=time_sec)
+                rr.set_time(RERUN_TIMELINE, timestamp=time_sec)
                 # Separate positions (x,y,z) and colors (from intensity)
                 positions = points[:, :3] if points.shape[1] >= 3 else points
                 intensities = points[:, 3] if points.shape[1] >= 4 else None
@@ -983,7 +850,7 @@ def convert_nio_to_rerun(
                             positions=positions,
                         ),
                     )
-            print(f"  Logged {len(pointcloud_frames[:20])} point cloud frames")
+            print(f"  Logged {len(pointcloud_frames)} point cloud frames")
 
         # Also try DDS messages
         lidar_topic = "/perception/lidar_cluster"
@@ -1002,8 +869,6 @@ def convert_nio_to_rerun(
             time_sec = timestamp_ns / 1e9
 
             for i, obj in enumerate(clusters.lidar_cluster_object_list):
-                class_name = LidarSemanticClass.Name(obj.lidar_cluster_class)
-
                 center = np.array(
                     [
                         obj.lidar_cluster_center_x,
@@ -1025,15 +890,13 @@ def convert_nio_to_rerun(
                 box_kwargs = {
                     "centers": [center],
                     "sizes": [size],
-                    "labels": [class_name],
                 }
                 if obj.HasField("lidar_cluster_mbr_yaw"):
                     box_kwargs["rotations"] = [
                         rr.RotationAxisAngle([0.0, 0.0, 1.0], radians=obj.lidar_cluster_mbr_yaw)
                     ]
 
-                rr.set_time("lidar_time", timestamp=time_sec)
-                rr.log(entity_name, rr.TextLog(class_name))
+                rr.set_time(RERUN_TIMELINE, timestamp=time_sec)
                 rr.log(
                     f"{entity_name}/box",
                     rr.Boxes3D(**box_kwargs),
@@ -1085,20 +948,17 @@ def convert_nio_to_rerun(
                     ]
                 )
 
-                class_name = DynamicObj.OBJObjectClass.Name(obj.OBJ_Object_Class)
                 entity_name = f"perception/object/{obj.OBJ_Object_ID}"
                 box_kwargs = {
                     "centers": [pos],
                     "sizes": [size],
-                    "labels": [class_name],
                 }
                 if obj.HasField("OBJ_Heading"):
                     box_kwargs["rotations"] = [
                         rr.RotationAxisAngle([0.0, 0.0, 1.0], radians=obj.OBJ_Heading)
                     ]
 
-                rr.set_time("perception_time", timestamp=time_sec)
-                rr.log(entity_name, rr.TextLog(class_name))
+                rr.set_time(RERUN_TIMELINE, timestamp=time_sec)
                 rr.log(
                     f"{entity_name}/box",
                     rr.Boxes3D(**box_kwargs),
