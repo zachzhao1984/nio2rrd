@@ -302,6 +302,75 @@ def _lidar_cluster_timestamp_ns(
     return fallback
 
 
+def _camera_intrinsics_from_calibration(
+    calib_data: Optional[dict], width: int, height: int
+) -> Optional[tuple[float, float, float, float]]:
+    """Extract camera intrinsics from calibration data when available."""
+    if not calib_data or "calibration_info" not in calib_data:
+        return None
+
+    calib = calib_data["calibration_info"]
+    camera_matrix = calib.get("camera_matrix")
+    if not isinstance(camera_matrix, dict):
+        return None
+
+    intrinsic = camera_matrix.get("intrinsic")
+    if not isinstance(intrinsic, dict):
+        return None
+
+    try:
+        fx = float(intrinsic.get("fx", width * 1.2))
+        fy = float(intrinsic.get("fy", height * 1.2))
+        cx = float(intrinsic.get("cx", width / 2))
+        cy = float(intrinsic.get("cy", height / 2))
+    except (TypeError, ValueError):
+        return None
+
+    return fx, fy, cx, cy
+
+
+def _log_camera_frame(
+    image_path: str,
+    camera_path: str,
+    timestamp_ns: int,
+    frame: np.ndarray,
+    calib_data: Optional[dict] = None,
+) -> None:
+    """Log one camera frame and optional pinhole calibration to Rerun."""
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    height, width = frame_rgb.shape[:2]
+    rr.set_time(RERUN_TIMELINE, timestamp=timestamp_ns / 1e9)
+    rr.log(image_path, rr.Image(frame_rgb))
+
+    intrinsics = _camera_intrinsics_from_calibration(calib_data, width, height)
+    if intrinsics is None:
+        return
+
+    fx, fy, cx, cy = intrinsics
+    rr.log(
+        camera_path,
+        rr.Pinhole(
+            resolution=(width, height),
+            focal_length=(fx, fy),
+            principal_point=(cx, cy),
+        ),
+    )
+    rr.log(camera_path, rr.Image(frame_rgb))
+
+
+def _clear_stale_entity_paths(
+    previous_paths: set[str], current_paths: set[str], timestamp_ns: int
+) -> None:
+    """Clear entity paths that disappeared in the current frame."""
+    stale_paths = previous_paths - current_paths
+    if not stale_paths:
+        return
+
+    rr.set_time(RERUN_TIMELINE, timestamp=timestamp_ns / 1e9)
+    for stale_path in sorted(stale_paths):
+        rr.log(stale_path, rr.Clear(recursive=False))
+
+
 class NIODataExtractor:
     """Extract data from NIO SIRIUS data packets."""
 
@@ -762,34 +831,13 @@ def convert_nio_to_rerun(
             image_path = f"{rerun_paths[0]}/image"
 
             for timestamp_ns, frame in frames:
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                height, width = frame_rgb.shape[:2]
-                rr.set_time(RERUN_TIMELINE, timestamp=timestamp_ns / 1e9)
-
-                # Log image to separate path
-                rr.log(image_path, rr.Image(frame_rgb))
-
-                # Set up pinhole camera for 3D projection (if calibration available)
-                if calib_data and "calibration_info" in calib_data:
-                    calib = calib_data["calibration_info"]
-                    if (
-                        "camera_matrix" in calib
-                        and "intrinsic" in calib["camera_matrix"]
-                    ):
-                        intrinsic = calib["camera_matrix"]["intrinsic"]
-                        fx = intrinsic.get("fx", width * 1.2)
-                        fy = intrinsic.get("fy", height * 1.2)
-                        cx = intrinsic.get("cx", width / 2)
-                        cy = intrinsic.get("cy", height / 2)
-
-                        rr.log(
-                            rerun_paths[1],
-                            rr.Pinhole(
-                                image_path=image_path,
-                                resolution=(width, height),
-                                focal_length_px=(fx, fy),
-                            ),
-                        )
+                _log_camera_frame(
+                    image_path=image_path,
+                    camera_path=rerun_paths[1],
+                    timestamp_ns=timestamp_ns,
+                    frame=frame,
+                    calib_data=calib_data,
+                )
 
     # Convert lidar cluster objects
     if include_lidar:
@@ -858,6 +906,7 @@ def convert_nio_to_rerun(
         print(f"  Found {len(messages)} lidar DDS messages")
 
         count = 0
+        previous_cluster_box_paths: set[str] = set()
         for file_timestamp_ns, data in messages[:500]:
             clusters = parse_lidar_cluster_objects(data)
             if not clusters:
@@ -867,6 +916,8 @@ def convert_nio_to_rerun(
                 clusters, fallback=file_timestamp_ns
             )
             time_sec = timestamp_ns / 1e9
+            current_cluster_logs: list[tuple[str, rr.Boxes3D]] = []
+            current_cluster_box_paths: set[str] = set()
 
             for i, obj in enumerate(clusters.lidar_cluster_object_list):
                 center = np.array(
@@ -896,13 +947,18 @@ def convert_nio_to_rerun(
                         rr.RotationAxisAngle([0.0, 0.0, 1.0], radians=obj.lidar_cluster_mbr_yaw)
                     ]
 
-                rr.set_time(RERUN_TIMELINE, timestamp=time_sec)
-                rr.log(
-                    f"{entity_name}/box",
-                    rr.Boxes3D(**box_kwargs),
-                )
+                box_path = f"{entity_name}/box"
+                current_cluster_box_paths.add(box_path)
+                current_cluster_logs.append((box_path, rr.Boxes3D(**box_kwargs)))
 
+            _clear_stale_entity_paths(
+                previous_cluster_box_paths, current_cluster_box_paths, timestamp_ns
+            )
+            rr.set_time(RERUN_TIMELINE, timestamp=time_sec)
+            for box_path, box in current_cluster_logs:
+                rr.log(box_path, box)
                 count += 1
+            previous_cluster_box_paths = current_cluster_box_paths
 
         print(f"  Logged {count} cluster objects")
 
@@ -914,6 +970,7 @@ def convert_nio_to_rerun(
         print(f"  Found {len(messages)} perception messages")
 
         count = 0
+        previous_object_paths: set[str] = set()
         for file_timestamp_ns, data in messages[:200]:
             objects = parse_perception_objects(data)
             if not objects:
@@ -921,6 +978,8 @@ def convert_nio_to_rerun(
 
             timestamp_ns = _message_timestamp_ns(objects, fallback=file_timestamp_ns)
             time_sec = timestamp_ns / 1e9
+            current_object_paths: set[str] = set()
+            current_object_logs: list[tuple[str, object]] = []
 
             for obj in objects.dynamicobj.OBJ:
                 pos = np.array(
@@ -958,20 +1017,27 @@ def convert_nio_to_rerun(
                         rr.RotationAxisAngle([0.0, 0.0, 1.0], radians=obj.OBJ_Heading)
                     ]
 
-                rr.set_time(RERUN_TIMELINE, timestamp=time_sec)
-                rr.log(
-                    f"{entity_name}/box",
-                    rr.Boxes3D(**box_kwargs),
-                )
-                rr.log(
-                    f"{entity_name}/velocity",
-                    rr.Arrows3D(
-                        vectors=[vel * 0.1],
-                        origins=[pos],
-                    ),
+                box_path = f"{entity_name}/box"
+                velocity_path = f"{entity_name}/velocity"
+                current_object_paths.update((box_path, velocity_path))
+                current_object_logs.append((box_path, rr.Boxes3D(**box_kwargs)))
+                current_object_logs.append(
+                    (
+                        velocity_path,
+                        rr.Arrows3D(
+                            vectors=[vel * 0.1],
+                            origins=[pos],
+                        ),
+                    )
                 )
 
                 count += 1
+
+            _clear_stale_entity_paths(previous_object_paths, current_object_paths, timestamp_ns)
+            rr.set_time(RERUN_TIMELINE, timestamp=time_sec)
+            for entity_path, archetype in current_object_logs:
+                rr.log(entity_path, archetype)
+            previous_object_paths = current_object_paths
 
         print(f"  Logged {count} perception objects")
 

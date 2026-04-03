@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import nio_to_rerun as mod
@@ -219,6 +220,65 @@ class LidarConversionTests(unittest.TestCase):
 
         frame.utc_timestamp = 0
         self.assertEqual(mod._camera_frame_timestamp_ns(frame, fallback=123), 1759987733455459840)
+
+    def test_log_camera_frame_uses_supported_pinhole_signature(self) -> None:
+        frame = np.array([[[0, 0, 255], [0, 255, 0]]], dtype=np.uint8)
+        calib_data = {
+            "calibration_info": {
+                "camera_matrix": {
+                    "intrinsic": {
+                        "fx": 11,
+                        "fy": 22,
+                        "cx": 33,
+                        "cy": 44,
+                    }
+                }
+            }
+        }
+
+        with (
+            mock.patch.object(mod.rr, "set_time") as mock_set_time,
+            mock.patch.object(mod.rr, "log") as mock_log,
+            mock.patch.object(mod.rr, "Image", side_effect=lambda image: ("Image", image.shape)),
+            mock.patch.object(mod.rr, "Pinhole", return_value="Pinhole") as mock_pinhole,
+        ):
+            mod._log_camera_frame(
+                image_path="camera_2d/front/image",
+                camera_path="camera_3d/front",
+                timestamp_ns=2_000_000_000,
+                frame=frame,
+                calib_data=calib_data,
+            )
+
+        mock_set_time.assert_called_once_with(mod.RERUN_TIMELINE, timestamp=2.0)
+        mock_pinhole.assert_called_once_with(
+            resolution=(2, 1),
+            focal_length=(11.0, 22.0),
+            principal_point=(33.0, 44.0),
+        )
+        self.assertEqual(mock_log.call_args_list[0].args[0], "camera_2d/front/image")
+        self.assertEqual(mock_log.call_args_list[1].args[0], "camera_3d/front")
+        self.assertEqual(mock_log.call_args_list[2].args[0], "camera_3d/front")
+
+    def test_clear_stale_entity_paths_logs_clear_for_removed_entities(self) -> None:
+        with (
+            mock.patch.object(mod.rr, "set_time") as mock_set_time,
+            mock.patch.object(mod.rr, "log") as mock_log,
+            mock.patch.object(
+                mod.rr,
+                "Clear",
+                side_effect=lambda recursive=False: ("Clear", recursive),
+            ) as mock_clear,
+        ):
+            mod._clear_stale_entity_paths(
+                previous_paths={"lidar/cluster/0/box", "lidar/cluster/1/box"},
+                current_paths={"lidar/cluster/1/box"},
+                timestamp_ns=3_000_000_000,
+            )
+
+        mock_set_time.assert_called_once_with(mod.RERUN_TIMELINE, timestamp=3.0)
+        mock_clear.assert_called_once_with(recursive=False)
+        mock_log.assert_called_once_with("lidar/cluster/0/box", ("Clear", False))
 
     def test_lidar_cluster_timestamp_prefers_proto_fields(self) -> None:
         clusters = LidarClusterObjects()
